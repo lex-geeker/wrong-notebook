@@ -3,10 +3,11 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
+import { unauthorized, forbidden, notFound, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
+import { inferSubjectFromName } from "@/lib/knowledge-tags";
 
 const logger = createLogger('api:error-items:id');
 
@@ -77,8 +78,8 @@ export async function PUT(
         const body = await req.json();
         const { knowledgePoints, gradeSemester, paperLevel, questionText, answerText, analysis, subjectId,  wrongAnswerText, mistakeAnalysis, mistakeStatus, geogebraCommands } = body;
 
-        const errorItem = await prisma.errorItem.findUnique({
-            where: { id },
+        const errorItem = await prisma.errorItem.findFirst({
+            where: { id, userId: user.id },
             include: { subject: true },
         });
 
@@ -86,12 +87,18 @@ export async function PUT(
             return notFound("Item not found");
         }
 
-        if (errorItem.userId !== user.id) {
-            return forbidden("Not authorized to update this item");
-        }
-
         // 构建更新数据
         const updateData: Prisma.ErrorItemUpdateInput = {};
+        for (const value of [questionText, answerText, analysis, wrongAnswerText, mistakeAnalysis, geogebraCommands]) {
+            if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 50_000)) {
+                return badRequest('Invalid text field');
+            }
+        }
+        for (const value of [gradeSemester, paperLevel]) {
+            if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 200)) {
+                return badRequest('Invalid metadata field');
+            }
+        }
         if (gradeSemester !== undefined) updateData.gradeSemester = gradeSemester;
         if (paperLevel !== undefined) updateData.paperLevel = paperLevel;
         if (questionText !== undefined) updateData.questionText = questionText;
@@ -99,17 +106,20 @@ export async function PUT(
         if (analysis !== undefined) updateData.analysis = analysis;
         if (wrongAnswerText !== undefined) updateData.wrongAnswerText = wrongAnswerText || null;
         if (mistakeAnalysis !== undefined) updateData.mistakeAnalysis = mistakeAnalysis || null;
+        let tagSubject = errorItem.subject;
         if (subjectId !== undefined) {
-            // 验证目标错题本存在且属于该用户
-            const targetSubject = await prisma.subject.findUnique({ where: { id: subjectId } });
-            if (!targetSubject || targetSubject.userId !== user.id) {
-                return forbidden("Not authorized to move to this notebook");
+            if (subjectId === "") {
+                tagSubject = null;
+                updateData.subject = { disconnect: true };
+            } else {
+                const targetSubject = await prisma.subject.findFirst({ where: { id: subjectId, userId: user.id } });
+                if (!targetSubject) return forbidden("Not authorized to move to this notebook");
+                tagSubject = targetSubject;
+                updateData.subject = { connect: { id: subjectId } };
             }
-            updateData.subject = subjectId === "" ? { disconnect: true } : { connect: { id: subjectId } };
         }
         if (mistakeStatus !== undefined || wrongAnswerText !== undefined || mistakeAnalysis !== undefined) {
             const nextWrongAnswerText = wrongAnswerText !== undefined ? wrongAnswerText : errorItem.wrongAnswerText;
-            const nextMistakeAnalysis = mistakeAnalysis !== undefined ? mistakeAnalysis : errorItem.mistakeAnalysis;
             updateData.mistakeStatus = normalizeMistakeStatusForSave(
                 mistakeStatus,
                 nextWrongAnswerText
@@ -119,47 +129,45 @@ export async function PUT(
 
         // 处理 knowledgePoints (标签)
         if (knowledgePoints !== undefined) {
-            const tagNames: string[] = Array.isArray(knowledgePoints)
-                ? knowledgePoints
-                : typeof knowledgePoints === 'string'
-                    ? JSON.parse(knowledgePoints)
-                    : [];
+            let tagNames: unknown = knowledgePoints;
+            if (typeof knowledgePoints === 'string') {
+                try {
+                    tagNames = JSON.parse(knowledgePoints);
+                } catch {
+                    return badRequest('Invalid knowledge points');
+                }
+            }
+            if (!Array.isArray(tagNames) || tagNames.length > 20 || tagNames.some(name => typeof name !== 'string' || name.length > 100)) {
+                return badRequest('Invalid knowledge points');
+            }
 
             // 推断学科
-            const subjectKey = errorItem.subject?.name?.toLowerCase().includes('math') ||
-                errorItem.subject?.name?.includes('数学')
-                ? 'math'
-                : errorItem.subject?.name?.toLowerCase().includes('english') ||
-                    errorItem.subject?.name?.includes('英语')
-                    ? 'english'
-                    : 'other';
+            const subjectKey = inferSubjectFromName(tagSubject?.name ?? null) || 'other';
+            const contextGrade = gradeSemester !== undefined ? gradeSemester : errorItem.gradeSemester;
+            const parentId = await findParentTagIdForGrade(contextGrade, subjectKey);
 
             const tagConnections: { id: string }[] = [];
             for (const tagName of tagNames) {
                 let tag = await prisma.knowledgeTag.findFirst({
                     where: {
                         name: tagName,
+                        subject: subjectKey,
+                        parentId,
                         OR: [
-                            { isSystem: true },
-                            { userId: user.id },
+                            { isSystem: true, userId: null },
+                            { isSystem: false, userId: user.id },
                         ],
                     },
                 });
 
                 if (!tag) {
-                    // Determine grade context for the new tag
-                    // Use the incoming gradeSemester (priority) or the existing one on the item
-                    const contextGrade = gradeSemester !== undefined ? gradeSemester : errorItem.gradeSemester;
-
-                    const parentId = await findParentTagIdForGrade(contextGrade, subjectKey);
-
                     tag = await prisma.knowledgeTag.create({
                         data: {
                             name: tagName,
                             subject: subjectKey,
                             isSystem: false,
                             userId: user.id,
-                            parentId: parentId, // Link to Grade node
+                            parentId,
                         },
                     });
                 }
@@ -172,14 +180,12 @@ export async function PUT(
                 connect: tagConnections,
             };
 
-            // 保留旧字段兼容
-            updateData.knowledgePoints = JSON.stringify(tagNames);
         }
 
         logger.info({ id }, 'Updating error item');
 
         const updated = await prisma.errorItem.update({
-            where: { id },
+            where: { id, userId: user.id },
             data: updateData,
             include: { tags: true },
         });

@@ -3,6 +3,7 @@
  * 测试练习统计和数据清除接口
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Session } from 'next-auth';
 
 // Use vi.hoisted to ensure mocks are initialized before module imports
 const mocks = vi.hoisted(() => ({
@@ -158,7 +159,7 @@ describe('/api/stats', () => {
             vi.mocked(getServerSession).mockResolvedValue({
                 user: undefined,
                 expires: '2025-12-31',
-            } as any);
+            } as unknown as Session);
 
             const request = new Request('http://localhost/api/stats/practice');
             const response = await GET_PRACTICE_STATS(request);
@@ -305,7 +306,7 @@ describe('/api/stats', () => {
             vi.mocked(getServerSession).mockResolvedValue({
                 user: undefined,
                 expires: '2025-12-31',
-            } as any);
+            } as unknown as Session);
 
             const request = new Request('http://localhost/api/error-items/clear', {
                 method: 'DELETE',

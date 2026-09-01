@@ -16,6 +16,7 @@ import {
 } from "@/lib/tag-data";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
+import type { Prisma } from "@prisma/client";
 
 const logger = createLogger('api:admin:migrate-tags');
 
@@ -24,16 +25,24 @@ interface TagAssociation {
     errorItemId: string;
     tagName: string;
     subject: string;
+    parentName: string | null;
 }
 
-export async function POST(req: Request) {
+type GradeOrder = Record<string, number>;
+type MathCurriculum = Record<string, readonly {
+    chapter: string;
+    sections: readonly { section: string; tags: readonly string[] }[];
+}[]>;
+type StandardCurriculum = Record<string, readonly { chapter: string; tags: readonly string[] }[]>;
+
+export async function POST() {
     const session = await getServerSession(authOptions);
 
     if (!session || !session.user) {
         return unauthorized();
     }
 
-    if ((session.user as any).role !== 'admin') {
+    if (session.user.role !== 'admin') {
         return forbidden("Admin access required for tag migration");
     }
 
@@ -54,7 +63,7 @@ export async function POST(req: Request) {
                     id: true,
                     tags: {
                         where: { isSystem: true },
-                        select: { name: true, subject: true }
+                        select: { name: true, subject: true, parent: { select: { name: true } } }
                     }
                 }
             });
@@ -66,6 +75,7 @@ export async function POST(req: Request) {
                         errorItemId: item.id,
                         tagName: tag.name,
                         subject: tag.subject,
+                        parentName: tag.parent?.name || null,
                     });
                 }
             }
@@ -129,11 +139,13 @@ export async function POST(req: Request) {
 
                 for (const assoc of itemAssociations) {
                     // 按名称+学科查找新标签
-                    let newTag = await tx.knowledgeTag.findFirst({
+                    const newTag = await tx.knowledgeTag.findFirst({
                         where: {
                             name: assoc.tagName,
                             subject: assoc.subject,
-                            isSystem: true
+                            isSystem: true,
+                            userId: null,
+                            parent: assoc.parentName ? { name: assoc.parentName } : null,
                         },
                         select: { id: true }
                     });
@@ -152,32 +164,24 @@ export async function POST(req: Request) {
                         });
 
                         if (adminUser) {
-                            // 检查是否已存在同名自定义标签
+                            const errorItem = await tx.errorItem.findUnique({
+                                where: { id: errorItemId },
+                                select: { gradeSemester: true }
+                            });
+                            const parentId = await findParentTagIdForGrade(errorItem?.gradeSemester, assoc.subject);
+
                             let customTag = await tx.knowledgeTag.findFirst({
                                 where: {
                                     name: assoc.tagName,
                                     subject: assoc.subject,
-                                    userId: adminUser.id
+                                    userId: adminUser.id,
+                                    parentId,
+                                    isSystem: false,
                                 },
                                 select: { id: true }
                             });
 
                             if (!customTag) {
-                                // Try to find grade context - this is tricky here as we only have tagName.
-                                // But we know errorItemId is associated with this tag.
-                                // We can fetch the error item to get the grade.
-                                // However, we are inside a loop over associations.
-                                // Let's simplify: If we are creating custom tags here, it's a fallback.
-                                // Can we get grade from assoc? We need to update TagAssociation interface Step 1.
-                                // For now, let's leave as is or fetch item?
-                                // Fetching item per tag creation is ok (rare case).
-                                const errorItem = await tx.errorItem.findUnique({
-                                    where: { id: errorItemId },
-                                    select: { gradeSemester: true }
-                                });
-
-                                const parentId = await findParentTagIdForGrade(errorItem?.gradeSemester, assoc.subject);
-
                                 customTag = await tx.knowledgeTag.create({
                                     data: {
                                         name: assoc.tagName,
@@ -230,9 +234,9 @@ export async function POST(req: Request) {
     }
 }
 
-async function seedMath(tx: any, curriculum: any, gradeOrder: any) {
+async function seedMath(tx: Prisma.TransactionClient, curriculum: MathCurriculum, gradeOrder: GradeOrder) {
     let count = 0;
-    for (const [gradeSemester, chapters] of Object.entries(curriculum) as any) {
+    for (const [gradeSemester, chapters] of Object.entries(curriculum)) {
         const gradeNode = await tx.knowledgeTag.create({
             data: {
                 name: gradeSemester,
@@ -289,9 +293,9 @@ async function seedMath(tx: any, curriculum: any, gradeOrder: any) {
     return count;
 }
 
-async function seedStandardSubject(tx: any, subject: string, curriculum: any, gradeOrder: any) {
+async function seedStandardSubject(tx: Prisma.TransactionClient, subject: string, curriculum: StandardCurriculum, gradeOrder: GradeOrder) {
     let count = 0;
-    for (const [gradeSemester, chapters] of Object.entries(curriculum) as any) {
+    for (const [gradeSemester, chapters] of Object.entries(curriculum)) {
         const gradeNode = await tx.knowledgeTag.create({
             data: {
                 name: gradeSemester,

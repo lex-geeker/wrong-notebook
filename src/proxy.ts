@@ -5,7 +5,7 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('middleware');
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
     // Debug logging for middleware
     logger.debug({ method: req.method, path: req.nextUrl.pathname }, 'Processing request');
 
@@ -16,7 +16,7 @@ export async function middleware(req: NextRequest) {
             cookieName: "next-auth.session-token", // Explicitly look for the standardized cookie
         });
 
-        const isAuth = !!token;
+        const isAuth = !!token && token.isActive !== false;
         const isAuthPage = req.nextUrl.pathname.startsWith("/login") || req.nextUrl.pathname.startsWith("/register");
         const isAdminPage = req.nextUrl.pathname.startsWith("/admin");
 
@@ -55,7 +55,7 @@ export async function middleware(req: NextRequest) {
         }
     } catch (e) {
         logger.error({ error: e }, 'Error processing token');
-        return NextResponse.next();
+        return NextResponse.redirect(new URL('/login', req.url));
     }
 }
 

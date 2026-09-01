@@ -5,8 +5,9 @@ import { getServerSession } from "next-auth";
 import { calculateGradeNumber, inferSubjectFromName } from "@/lib/knowledge-tags";
 import { calculateGrade } from "@/lib/grade-calculator";
 import { prisma } from "@/lib/prisma";
-import { badRequest, internalError, createErrorResponse, ErrorCode } from "@/lib/api-errors";
+import { badRequest, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { parseImagePayload } from "@/lib/image-payload";
 
 const logger = createLogger('api:analyze');
 
@@ -23,7 +24,8 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        let { imageBase64, mimeType, language, subjectId } = body;
+        const { language, subjectId } = body;
+        let { imageBase64, mimeType } = body;
 
         logger.debug({
             imageLength: imageBase64?.length,
@@ -32,19 +34,12 @@ export async function POST(req: Request) {
             subjectId
         }, 'Request received');
 
-        if (!imageBase64) {
-            logger.warn('Missing image data');
-            return badRequest("Missing image data");
-        }
-
-        // Parse Data URL if present
-        if (imageBase64.startsWith('data:')) {
-            const matches = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
-            if (matches) {
-                mimeType = matches[1];
-                imageBase64 = matches[2];
-                logger.debug({ mimeType, base64Length: imageBase64.length }, 'Parsed Data URL');
-            }
+        try {
+            const image = parseImagePayload(imageBase64, mimeType);
+            imageBase64 = image.base64;
+            mimeType = image.mimeType;
+        } catch (error) {
+            return badRequest(error instanceof Error ? error.message : 'Invalid image');
         }
 
         // 先获取用户年级信息，用于动态生成 AI prompt 中的标签列表
@@ -70,8 +65,8 @@ export async function POST(req: Request) {
 
                 // 获取错题本信息以推断学科
                 if (subjectId) {
-                    const subject = await prisma.subject.findUnique({
-                        where: { id: subjectId },
+                    const subject = await prisma.subject.findFirst({
+                        where: { id: subjectId, userId: session.user.id },
                         select: { name: true }
                     });
 
@@ -119,38 +114,39 @@ export async function POST(req: Request) {
         logger.info('AI analysis successful');
 
         return NextResponse.json(analysisResult);
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Failed to analyze image";
         logger.error({
-            error: error.message,
-            stack: error.stack
+            error: message,
+            stack: error instanceof Error ? error.stack : undefined,
         }, 'Analysis error occurred');
 
         // 返回具体的错误类型，便于前端显示详细提示
-        let errorMessage = error.message || "Failed to analyze image";
+        let errorMessage = message;
 
         // 识别特定错误类型
-        if (error.message && (
-            error.message === 'AI_CONNECTION_FAILED' ||
-            error.message === 'AI_RESPONSE_ERROR' ||
-            error.message.includes('AI_AUTH_ERROR') ||
-            error.message === 'AI_TIMEOUT_ERROR' ||
-            error.message === 'AI_QUOTA_EXCEEDED' ||
-            error.message === 'AI_PERMISSION_DENIED' ||
-            error.message === 'AI_NOT_FOUND' ||
-            error.message === 'AI_SERVICE_UNAVAILABLE' ||
-            error.message === 'AI_UNKNOWN_ERROR'
-        )) {
+        if (
+            message === 'AI_CONNECTION_FAILED' ||
+            message.startsWith('AI_RESPONSE_ERROR') ||
+            message.includes('AI_AUTH_ERROR') ||
+            message === 'AI_TIMEOUT_ERROR' ||
+            message === 'AI_QUOTA_EXCEEDED' ||
+            message === 'AI_PERMISSION_DENIED' ||
+            message === 'AI_NOT_FOUND' ||
+            message === 'AI_SERVICE_UNAVAILABLE' ||
+            message === 'AI_UNKNOWN_ERROR'
+        ) {
             // 直接传递 AI Provider 定义的错误类型 (如果是 AI_AUTH_ERROR，提取出来)
-            if (error.message.includes('AI_AUTH_ERROR')) {
+            if (message.includes('AI_AUTH_ERROR')) {
                 errorMessage = 'AI_AUTH_ERROR';
             } else {
-                errorMessage = error.message;
+                errorMessage = message;
             }
-        } else if (error.message?.includes('Zod') || error.message?.includes('validate')) {
+        } else if (message.includes('Zod') || message.includes('validate')) {
             // Zod 验证错误
             errorMessage = 'AI_RESPONSE_ERROR';
         }
 
-        return createErrorResponse(errorMessage, 500, ErrorCode.AI_ERROR, error.message);
+        return createErrorResponse(errorMessage, 500, ErrorCode.AI_ERROR, message);
     }
 }

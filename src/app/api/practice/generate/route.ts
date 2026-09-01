@@ -11,28 +11,23 @@ const logger = createLogger('api:practice:generate');
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
         return unauthorized("Authentication required");
     }
 
     try {
         const { errorItemId, language, difficulty } = await req.json();
 
-        const errorItemWithSubject = await prisma.errorItem.findUnique({
-            where: { id: errorItemId },
-            include: { subject: true }
+        const errorItemWithSubject = await prisma.errorItem.findFirst({
+            where: { id: errorItemId, userId: session.user.id },
+            include: { subject: true, tags: { select: { name: true } } }
         });
 
         if (!errorItemWithSubject) {
             return notFound("Item not found");
         }
 
-        let tags: string[] = [];
-        try {
-            tags = JSON.parse(errorItemWithSubject.knowledgePoints || "[]");
-        } catch (e) {
-            tags = [];
-        }
+        const tags = errorItemWithSubject.tags.map((tag) => tag.name);
 
         const aiService = getAIService();
         const similarQuestion = await aiService.generateSimilarQuestion(
@@ -46,7 +41,7 @@ export async function POST(req: Request) {
         // Inject the subject from the database with type safety
         const validSubjects = ["数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"] as const;
         const subjectName = errorItemWithSubject.subject?.name || "其他";
-        similarQuestion.subject = validSubjects.includes(subjectName as any) ? subjectName as typeof validSubjects[number] : "其他";
+        similarQuestion.subject = validSubjects.find(subject => subject === subjectName) || "其他";
 
         return NextResponse.json(similarQuestion);
     } catch (error) {

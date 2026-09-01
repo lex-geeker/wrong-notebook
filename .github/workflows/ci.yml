@@ -9,6 +9,34 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint
+    if: "!startsWith(github.ref, 'refs/tags/')"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    name: Type Check
+    if: "!startsWith(github.ref, 'refs/tags/')"
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run typecheck
+
   # ============================================
   # 测试阶段（仅 main 分支 push 或 PR）
   # ============================================
@@ -17,6 +45,7 @@ jobs:
     name: Unit Tests
     # 只在非 tag push 时运行测试
     if: "!startsWith(github.ref, 'refs/tags/')"
+    needs: typecheck
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

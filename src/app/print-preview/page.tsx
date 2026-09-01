@@ -1,50 +1,75 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { apiClient } from "@/lib/api-client";
-import { ErrorItem, PaginatedResponse } from "@/types/api";
+import { ErrorItem, PaginatedResponse, PracticeSessionData } from "@/types/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PRINT_PREVIEW_PAGE_SIZE } from "@/lib/constants/pagination";
+import { Smartphone } from "lucide-react";
 import {
     getPrintPreviewCountLabel,
     getPrintPreviewEmptyState,
+    getPracticePrintItems,
     getSelectedPrintItems,
+    loadAllPages,
     shouldReserveAnswerSpace,
+    type PrintPreviewItem,
 } from "@/lib/print-preview";
 
 function PrintPreviewContent() {
     const searchParams = useSearchParams();
+    const query = searchParams.toString();
+    const sessionId = searchParams.get("sessionId");
+    const isPracticePrint = Boolean(sessionId);
+    const isPaperPractice = isPracticePrint && searchParams.get("paper") === "1";
     const { t } = useLanguage();
-    const [items, setItems] = useState<ErrorItem[]>([]);
+    const [items, setItems] = useState<PrintPreviewItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [showAnswers, setShowAnswers] = useState(false);
     const [showAnalysis, setShowAnalysis] = useState(false);
     const [showTags, setShowTags] = useState(false);
     const [imageScale, setImageScale] = useState(70);
-    const [showQuestionText, setShowQuestionText] = useState(false);
+    const [showQuestionText, setShowQuestionText] = useState(isPracticePrint);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
+        let cancelled = false;
+        const fetchItems = async () => {
+            try {
+                if (sessionId) {
+                    const response = await apiClient.get<PracticeSessionData>(`/api/practice/sessions/${sessionId}`);
+                    const practiceItems = getPracticePrintItems(response);
+                    if (cancelled) return;
+                    setItems(practiceItems);
+                    setSelectedIds(new Set(practiceItems.map((item) => item.id)));
+                    return;
+                }
+                const params = new URLSearchParams(query);
+                params.set("view", "print");
+                // 打印预览需要所有符合条件的数据，设置较大的 pageSize
+                params.set("pageSize", String(PRINT_PREVIEW_PAGE_SIZE));
+                const allItems = await loadAllPages(async (page) => {
+                    params.set("page", String(page));
+                    return apiClient.get<PaginatedResponse<ErrorItem>>(`/api/error-items/list?${params.toString()}`);
+                });
+                if (cancelled) return;
+                setItems(allItems);
+                setSelectedIds(new Set(allItems.map((item) => item.id)));
+            } catch (error) {
+                console.error(error);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+
         fetchItems();
-    }, []);
-    const fetchItems = async () => {
-        try {
-            const params = new URLSearchParams(searchParams.toString());
-            // 打印预览需要所有符合条件的数据，设置较大的 pageSize
-            params.set("pageSize", String(PRINT_PREVIEW_PAGE_SIZE));
-            const response = await apiClient.get<PaginatedResponse<ErrorItem>>(`/api/error-items/list?${params.toString()}`);
-            setItems(response.items);
-            setSelectedIds(new Set(response.items.map((item) => item.id)));
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        return () => { cancelled = true; };
+    }, [query, sessionId]);
 
     const handlePrint = () => {
         window.print();
@@ -54,6 +79,7 @@ function PrintPreviewContent() {
     const reserveAnswerSpace = shouldReserveAnswerSpace(showAnswers, showAnalysis);
     const countLabel = getPrintPreviewCountLabel(items.length, selectedItems.length);
     const emptyState = getPrintPreviewEmptyState(items.length, selectedItems.length);
+    const canShowAnswers = !isPracticePrint || items.some((item) => item.answerText);
 
     const toggleSelectedItem = (id: string) => {
         setSelectedIds((prev) => {
@@ -89,20 +115,28 @@ function PrintPreviewContent() {
             <div className="print:hidden sticky top-0 z-10 bg-background border-b p-3 sm:p-4 shadow-sm">
                 <div className="max-w-6xl mx-auto space-y-3">
                     {/* Header Row */}
-                    <div className="flex items-center gap-3">
-                        <BackButton fallbackUrl="/notebooks" />
-                        <h1 className="text-lg sm:text-xl font-bold flex-1">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <BackButton fallbackUrl={isPracticePrint ? "/practice" : "/notebooks"} />
+                        <h1 className="min-w-36 flex-1 text-lg font-bold sm:text-xl">
                             {t.printPreview?.title || 'Print Preview'} ({countLabel} {t.notebooks?.items || 'items'})
                         </h1>
+                        {isPaperPractice && sessionId && (
+                            <Link href={`/practice?sessionId=${sessionId}&paper=1`}>
+                                <Button variant="outline" size="sm" className="whitespace-nowrap">
+                                    <Smartphone className="mr-2 h-4 w-4" />
+                                    {t.practice.batch.paperGrading}
+                                </Button>
+                            </Link>
+                        )}
                         <Button onClick={handlePrint} size="sm" className="whitespace-nowrap" disabled={selectedItems.length === 0}>
                             {t.printPreview?.printButton || 'Print / Save PDF'}
                         </Button>
                     </div>
 
                     {/* Controls Row */}
-                    <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
+                    {(!isPracticePrint || canShowAnswers) && <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
                         {/* Image Scale Control */}
-                        <div className="flex items-center gap-2 text-sm bg-muted/50 px-2 sm:px-3 py-1 rounded-md">
+                        {!isPracticePrint && <div className="flex items-center gap-2 text-sm bg-muted/50 px-2 sm:px-3 py-1 rounded-md">
                             <span className="whitespace-nowrap text-xs sm:text-sm">{t.printPreview?.imageScale || 'Image Scale'}: {imageScale}%</span>
                             <input
                                 type="range"
@@ -112,11 +146,11 @@ function PrintPreviewContent() {
                                 onChange={(e) => setImageScale(Number(e.target.value))}
                                 className="w-16 sm:w-20 accent-primary"
                             />
-                        </div>
+                        </div>}
 
                         {/* Toggle Options - Grid on Mobile */}
                         <div className="flex flex-wrap gap-x-3 gap-y-1 sm:gap-4">
-                            <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
+                            {!isPracticePrint && <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
                                 <input
                                     type="checkbox"
                                     checked={showQuestionText}
@@ -124,8 +158,8 @@ function PrintPreviewContent() {
                                     className="rounded border-gray-300 text-primary focus:ring-primary w-3.5 h-3.5 sm:w-4 sm:h-4"
                                 />
                                 {t.printPreview?.showQuestionText || 'Question Text'}
-                            </label>
-                            <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
+                            </label>}
+                            {canShowAnswers && <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
                                 <input
                                     type="checkbox"
                                     checked={showAnswers}
@@ -133,8 +167,8 @@ function PrintPreviewContent() {
                                     className="rounded border-gray-300 text-primary focus:ring-primary w-3.5 h-3.5 sm:w-4 sm:h-4"
                                 />
                                 {t.printPreview?.showAnswers || 'Show Answers'}
-                            </label>
-                            <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
+                            </label>}
+                            {!isPracticePrint && <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
                                 <input
                                     type="checkbox"
                                     checked={showAnalysis}
@@ -142,8 +176,8 @@ function PrintPreviewContent() {
                                     className="rounded border-gray-300 text-primary focus:ring-primary w-3.5 h-3.5 sm:w-4 sm:h-4"
                                 />
                                 {t.printPreview?.showAnalysis || 'Show Analysis'}
-                            </label>
-                            <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
+                            </label>}
+                            {!isPracticePrint && <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
                                 <input
                                     type="checkbox"
                                     checked={showTags}
@@ -151,9 +185,9 @@ function PrintPreviewContent() {
                                     className="rounded border-gray-300 text-primary focus:ring-primary w-3.5 h-3.5 sm:w-4 sm:h-4"
                                 />
                                 {t.printPreview?.showTags || 'Show Tags'}
-                            </label>
+                            </label>}
                         </div>
-                    </div>
+                    </div>}
 
                     {/* Item Selection Row */}
                     <div className="rounded-md border bg-muted/20 p-3 space-y-2">
@@ -198,17 +232,7 @@ function PrintPreviewContent() {
             {/* Print Content */}
             <div className="max-w-4xl mx-auto p-8 print:p-0">
                 {selectedItems.map((item, index) => {
-                    // 优先使用 tags 关联，回退到 knowledgePoints
-                    let tags: string[] = [];
-                    if (item.tags && item.tags.length > 0) {
-                        tags = item.tags.map(t => t.name);
-                    } else {
-                        try {
-                            tags = JSON.parse(item.knowledgePoints || "[]");
-                        } catch (e) {
-                            tags = [];
-                        }
-                    }
+                    const tags = item.tags?.map(t => t.name) || [];
 
                     return (
                         <div

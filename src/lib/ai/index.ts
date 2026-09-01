@@ -16,7 +16,7 @@ export function getAIService(): AIService {
     const provider = config.aiProvider;
 
     if (provider === "openai") {
-        const activeConfig = getActiveOpenAIConfig();
+        const activeConfig = getActiveOpenAIConfig(config);
         logger.info({ activeInstance: activeConfig?.name }, 'Using OpenAI Provider');
         return new OpenAIProvider(activeConfig);
     } else if (provider === "azure") {

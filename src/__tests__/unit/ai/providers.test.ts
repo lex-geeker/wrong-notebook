@@ -49,6 +49,7 @@ vi.mock('@/lib/config', () => ({
 
 // Delayed import to ensure mocks are applied
 import { getAppConfig, getActiveOpenAIConfig } from '@/lib/config';
+import type { AppConfig } from '@/lib/config';
 
 describe('AI Provider 初始化', () => {
     beforeEach(() => {
@@ -136,7 +137,7 @@ describe('AI Provider 初始化', () => {
                     activeInstanceId: 'test',
                 },
                 gemini: { apiKey: '', model: '' }
-            } as any);
+            } as AppConfig);
             vi.mocked(getActiveOpenAIConfig).mockReturnValue({
                 id: 'test',
                 name: 'Test',
@@ -157,7 +158,7 @@ describe('AI Provider 初始化', () => {
                 aiProvider: 'gemini',
                 gemini: { apiKey: 'test-gemini-key', model: 'gemini-2.0-flash' },
                 openai: { apiKey: '', model: '' }
-            } as any);
+            } as AppConfig);
 
             const service = getAIService();
 
@@ -170,7 +171,7 @@ describe('AI Provider 初始化', () => {
             vi.mocked(getAppConfig).mockReturnValue({
                 aiProvider: 'unknown',
                 gemini: { apiKey: 'test-gemini-key' },
-            } as any);
+            } as unknown as AppConfig);
 
             const service = getAIService();
 

@@ -61,8 +61,6 @@ export interface ErrorItem {
     wrongAnswerText?: string | null;
     mistakeAnalysis?: string | null;
     mistakeStatus?: 'not_attempted' | 'wrong_attempt' | 'unknown' | string | null;
-    knowledgePoints?: string | null;
-
     source?: string | null;
     errorType?: string | null;
     userNotes?: string | null;
@@ -156,6 +154,15 @@ export interface PracticeStatsData {
     overallStats: { total: number; correct: number; rate: string };
 }
 
+export interface ErrorItemSummary {
+    id: string;
+    questionText: string | null;
+    masteryLevel: number;
+    mistakeStatus: string | null;
+    createdAt: string;
+    tags: Array<{ id: string; name: string }>;
+}
+
 export interface ErrorItemFilterOptions {
     grades: string[];
     tags: string[];
@@ -180,11 +187,12 @@ export interface PracticeSessionItemData {
     errorItemId: string | null;
     questionText: string;
     generationMode: PracticeGenerationMode;
+    expectedAnswer?: string;
     answer?: {
         answerInput: string;
         expectedAnswer: string;
-        isCorrect: boolean;
-        matchType: string;
+        isCorrect: boolean | null;
+        matchType: "exact" | "choice" | "self_assessment" | "manual";
     };
 }
 

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { createLogger } from './logger';
 
 const logger = createLogger('config');
@@ -57,15 +58,6 @@ function isLegacyOpenAIConfig(config: unknown): config is LegacyOpenAIConfig {
     return 'apiKey' in config && !('instances' in config);
 }
 
-// 生成唯一 ID
-function generateId(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
 // 迁移旧版 OpenAI 配置到新版多实例格式
 function migrateOpenAIConfig(legacy: LegacyOpenAIConfig): AppConfig['openai'] {
     if (!legacy.apiKey) {
@@ -74,7 +66,7 @@ function migrateOpenAIConfig(legacy: LegacyOpenAIConfig): AppConfig['openai'] {
     }
 
     const defaultInstance: OpenAIInstance = {
-        id: generateId(),
+        id: randomUUID(),
         name: 'Default',
         apiKey: legacy.apiKey,
         baseUrl: legacy.baseUrl || 'https://api.openai.com/v1',
@@ -187,8 +179,7 @@ export function updateAppConfig(newConfig: Partial<AppConfig>) {
 }
 
 // 获取当前激活的 OpenAI 实例配置
-export function getActiveOpenAIConfig(): OpenAIInstance | undefined {
-    const config = getAppConfig();
+export function getActiveOpenAIConfig(config: AppConfig = getAppConfig()): OpenAIInstance | undefined {
     const instances = config.openai?.instances || [];
     const activeId = config.openai?.activeInstanceId;
 

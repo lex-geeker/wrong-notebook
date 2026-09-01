@@ -25,7 +25,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { UserManagement } from "@/components/admin/user-management";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiError } from "@/lib/api-client";
 import { frontendLogger } from "@/lib/frontend-logger";
 import { AppConfig, UserProfile, UpdateUserProfileRequest, OpenAIInstance } from "@/types/api";
 import { ModelSelector } from "@/components/ui/model-selector";
@@ -34,21 +34,22 @@ import { PromptSettings } from "@/components/settings/prompt-settings";
 import { MessageSquareText, Info, ExternalLink, Github, ScrollText } from "lucide-react";
 const MAX_OPENAI_INSTANCES = 10;
 
-// 生成唯一 ID
-function generateId(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
 interface ProfileFormState {
     name: string;
     email: string;
     educationStage: string;
     enrollmentYear: string | number;
     password: string;
+}
+
+interface ImportResponse {
+    stats: {
+        subjectsCreated: number;
+        tagsCreated: number;
+        errorItemsCreated: number;
+        reviewSchedulesIgnored: number;
+        practiceRecordsCreated: number;
+    };
 }
 
 export function SettingsDialog() {
@@ -240,9 +241,11 @@ export function SettingsDialog() {
             setShowPassword(false);
             setShowConfirmPassword(false);
             window.location.reload(); // Reload to update user name in UI
-        } catch (error: any) {
-            frontendLogger.error('[SettingsDialog]', 'Failed to update profile', { error: error?.data?.message || error?.message || String(error) });
-            const message = error.data?.message || (t.settings?.messages?.updateFailed || "Update failed");
+        } catch (error: unknown) {
+            const data = error instanceof ApiError ? error.data : null;
+            const apiMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : null;
+            frontendLogger.error('[SettingsDialog]', 'Failed to update profile', { error: apiMessage || (error instanceof Error ? error.message : String(error)) });
+            const message = apiMessage || (t.settings?.messages?.updateFailed || "Update failed");
             alert(message);
         } finally {
             setProfileSaving(false);
@@ -393,15 +396,15 @@ export function SettingsDialog() {
             const text = await selectedFile.text();
             const data = JSON.parse(text);
 
-            const response = await apiClient.post('/api/import', data);
-            const stats = (response as any).stats;
+            const response = await apiClient.post<ImportResponse>('/api/import', data);
+            const stats = response.stats;
 
             alert(
-                (t.settings?.importResultDesc || "Imported {subjects} notebooks, {tags} tags, {items} error items, {schedules} review schedules, {records} practice records.")
+                (t.settings?.importResultDesc || "Imported {subjects} notebooks, {tags} tags, {items} error items and {records} practice records; ignored {schedules} legacy review schedules.")
                     .replace('{subjects}', String(stats.subjectsCreated))
                     .replace('{tags}', String(stats.tagsCreated))
                     .replace('{items}', String(stats.errorItemsCreated))
-                    .replace('{schedules}', String(stats.reviewSchedulesCreated))
+                    .replace('{schedules}', String(stats.reviewSchedulesIgnored))
                     .replace('{records}', String(stats.practiceRecordsCreated))
             );
 
@@ -436,11 +439,11 @@ export function SettingsDialog() {
             if (result.success) {
                 const s = result.stats;
                 alert(
-                    (t.settings?.importResultDesc || "Imported {subjects} notebooks, {tags} tags, {items} error items, {schedules} review schedules, {records} practice records.")
+                    (t.settings?.importResultDesc || "Imported {subjects} notebooks, {tags} tags, {items} error items and {records} practice records; ignored {schedules} legacy review schedules.")
                         .replace('{subjects}', String(s.subjectsCreated))
                         .replace('{tags}', String(s.tagsCreated))
                         .replace('{items}', String(s.errorItemsCreated))
-                        .replace('{schedules}', String(s.reviewSchedulesCreated))
+                        .replace('{schedules}', String(s.reviewSchedulesIgnored))
                         .replace('{records}', String(s.practiceRecordsCreated))
                 );
                 setSelectedFile(null);
@@ -464,8 +467,8 @@ export function SettingsDialog() {
 
         setMigratingTags(true);
         try {
-            const res = await apiClient.post("/api/admin/migrate-tags", {});
-            alert(`${t.settings?.clearSuccess || "Success"}: ${(res as any).count || 0} tags migrated.`);
+            const res = await apiClient.post<{ count: number }>("/api/admin/migrate-tags", {});
+            alert(`${t.settings?.clearSuccess || "Success"}: ${res.count || 0} tags migrated.`);
             // No reload needed necessarily, but good to refresh if user is viewing tags.
         } catch (error) {
             frontendLogger.error('[SettingsDialog]', 'Tag migration failed', { error: error instanceof Error ? error.message : String(error) });
@@ -517,7 +520,7 @@ export function SettingsDialog() {
         if (instances.length >= MAX_OPENAI_INSTANCES) return;
 
         const newInstance: OpenAIInstance = {
-            id: generateId(),
+            id: crypto.randomUUID(),
             name: `Instance ${instances.length + 1}`,
             apiKey: '',
             baseUrl: 'https://api.openai.com/v1',
@@ -673,7 +676,7 @@ export function SettingsDialog() {
                 </DialogHeader>
 
                 <Tabs defaultValue="general" className="w-full">
-                    <TabsList className={`grid w-full grid-cols-4 ${(session?.user as any)?.role === 'admin' ? 'sm:grid-cols-7' : 'sm:grid-cols-4'} gap-1 h-auto`}>
+                    <TabsList className={`grid w-full grid-cols-4 ${session?.user?.role === 'admin' ? 'sm:grid-cols-7' : 'sm:grid-cols-4'} gap-1 h-auto`}>
                         <TabsTrigger value="general" className="px-2 sm:px-3">
                             <Languages className="h-4 w-4 sm:mr-2" />
                             <span className="hidden sm:inline">{t.settings?.tabs?.general || "General"}</span>
@@ -682,7 +685,7 @@ export function SettingsDialog() {
                             <User className="h-4 w-4 sm:mr-2" />
                             <span className="hidden sm:inline">{t.settings?.tabs?.account || "Account"}</span>
                         </TabsTrigger>
-                        {(session?.user as any)?.role === 'admin' && (
+                        {session?.user?.role === 'admin' && (
                             <>
                                 <TabsTrigger value="ai" className="px-2 sm:px-3">
                                     <Bot className="h-4 w-4 sm:mr-2" />
@@ -1236,7 +1239,7 @@ export function SettingsDialog() {
 
                     {/* Admin Tab */}
                     {
-                        (session?.user as any)?.role === 'admin' && (
+                        session?.user?.role === 'admin' && (
                             <TabsContent value="admin" className="space-y-4 py-4">
                                 <Button
                                     variant="outline"
@@ -1286,7 +1289,7 @@ export function SettingsDialog() {
                                                 )}
                                                 {t.settings?.exportData || "Export"}
                                             </Button>
-                                            {(session?.user as any)?.role === 'admin' && (
+                                            {session?.user?.role === 'admin' && (
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
@@ -1354,7 +1357,7 @@ export function SettingsDialog() {
                                                     {t.settings?.importData || "Import"}
                                                 </Button>
                                             )}
-                                            {selectedFile && (session?.user as any)?.role === 'admin' && (
+                                            {selectedFile && session?.user?.role === 'admin' && (
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
@@ -1379,7 +1382,7 @@ export function SettingsDialog() {
                             </div>
 
                             {/* Migrate Tags (Admin Only) */}
-                            {(session?.user as any)?.role === 'admin' && (
+                            {session?.user?.role === 'admin' && (
                                 <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
                                     <div className="flex items-center justify-between">
                                         <div className="flex flex-col">
@@ -1457,7 +1460,7 @@ export function SettingsDialog() {
                             </div>
 
                             {/* System Reset (Admin Only) */}
-                            {(session?.user as any)?.role === 'admin' && (
+                            {session?.user?.role === 'admin' && (
                                 <>
                                     {/* System Reset */}
                                     <div className="p-4 border border-red-600/50 rounded-lg bg-red-100/50">

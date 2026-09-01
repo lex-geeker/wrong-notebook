@@ -15,10 +15,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const [language, setLanguage] = useState<Language>('zh'); // Default to Chinese
 
     useEffect(() => {
-        const savedLang = localStorage.getItem('app-language') as Language;
-        if (savedLang) {
-            setLanguage(savedLang);
-        }
+        queueMicrotask(() => {
+            const savedLang = localStorage.getItem('app-language') as Language;
+            if (savedLang && savedLang in translations) setLanguage(savedLang);
+        });
     }, []);
 
     const handleSetLanguage = (lang: Language) => {

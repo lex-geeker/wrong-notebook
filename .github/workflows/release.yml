@@ -59,7 +59,7 @@ jobs:
             RANGE="HEAD"
             echo "首次发版，列出所有 commit"
           else
-            RANGE="${{ steps.version.outputs.tag }}..${PREV_TAG}"
+            RANGE="${PREV_TAG}..${{ steps.version.outputs.tag }}"
             echo "范围: $RANGE"
           fi
 

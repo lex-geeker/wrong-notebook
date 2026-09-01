@@ -57,7 +57,7 @@ export async function GET(req: Request) {
             startedAt: practiceSession.startedAt.toISOString(),
             endedAt: practiceSession.endedAt?.toISOString() || null,
             itemCount: practiceSession.items.length,
-            answeredCount: practiceSession.items.filter((item) => item.record).length,
+            answeredCount: practiceSession.items.filter((item) => item.record?.isCorrect !== null && item.record?.isCorrect !== undefined).length,
             correctCount: practiceSession.items.filter((item) => item.record?.isCorrect).length,
         })));
     } catch (error) {
@@ -112,7 +112,7 @@ export async function POST(req: Request) {
                 questionText: true,
                 answerText: true,
                 gradeSemester: true,
-                knowledgePoints: true,
+                tags: { select: { name: true } },
                 subject: { select: { name: true } },
                 practiceRecords: {
                     where: { isCorrect: { not: null } },
@@ -141,13 +141,14 @@ export async function POST(req: Request) {
                 logger.warn({ error }, "Variant service unavailable; using original questions");
             }
         }
-        const items = await Promise.all(selected.map(async (item, position) => {
+        const createItem = async (item: (typeof selected)[number], position: number) => {
+            const knowledgePoints = item.tags.map((tag) => tag.name);
             const base = {
                 errorItemId: item.id,
                 position,
                 subjectName: item.subject?.name,
                 gradeSemester: item.gradeSemester,
-                knowledgePoints: item.knowledgePoints,
+                knowledgePoints: JSON.stringify(knowledgePoints),
                 sourceQuestionText: item.questionText!,
                 sourceAnswerText: item.answerText!,
                 questionText: item.questionText!,
@@ -158,10 +159,9 @@ export async function POST(req: Request) {
             if (questionSource === "original") return base;
             if (!aiService) return { ...base, generationMode: "fallback" };
             try {
-                const knowledgePoints = JSON.parse(item.knowledgePoints || "[]");
                 const variant = await aiService.generateSimilarQuestion(
                     item.questionText!,
-                    Array.isArray(knowledgePoints) ? knowledgePoints : [],
+                    knowledgePoints,
                     language,
                     "medium",
                     item.gradeSemester,
@@ -177,7 +177,12 @@ export async function POST(req: Request) {
                 logger.warn({ error, errorItemId: item.id }, "Variant generation failed; using original");
                 return { ...base, generationMode: "fallback" };
             }
-        }));
+        };
+        const items: Awaited<ReturnType<typeof createItem>>[] = [];
+        for (let index = 0; index < selected.length; index += 3) {
+            const batch = selected.slice(index, index + 3);
+            items.push(...await Promise.all(batch.map((item, offset) => createItem(item, index + offset))));
+        }
 
         const practiceSession = await prisma.practiceSession.create({
             data: {

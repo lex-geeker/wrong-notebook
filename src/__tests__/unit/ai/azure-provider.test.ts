@@ -51,11 +51,6 @@ vi.mock('@/lib/ai/tag-service', () => ({
     getTagsFromDB: vi.fn(() => Promise.resolve([])),
 }));
 
-// Mock jsonrepair
-vi.mock('jsonrepair', () => ({
-    jsonrepair: vi.fn((str) => str),
-}));
-
 // Delayed import to ensure mocks are applied
 import { AzureOpenAIProvider } from '@/lib/ai/azure-provider';
 import type { ParsedQuestion } from '@/lib/ai/types';

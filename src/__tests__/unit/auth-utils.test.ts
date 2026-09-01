@@ -3,6 +3,7 @@
  * 测试 isAdmin 和 requireAdmin 函数
  */
 import { describe, it, expect } from 'vitest';
+import type { Session } from 'next-auth';
 import { isAdmin, requireAdmin } from '@/lib/auth-utils';
 
 describe('auth-utils', () => {
@@ -38,7 +39,7 @@ describe('auth-utils', () => {
                 user: { id: 'admin-id', role: 'admin', email: 'admin@localhost' },
                 expires: '2025-12-31',
             };
-            expect(requireAdmin(session as any)).toBe(true);
+            expect(requireAdmin(session as Session)).toBe(true);
         });
 
         it('应该对普通用户 session 返回 false', () => {
@@ -46,7 +47,7 @@ describe('auth-utils', () => {
                 user: { id: 'user-id', role: 'user', email: 'user@example.com' },
                 expires: '2025-12-31',
             };
-            expect(requireAdmin(session as any)).toBe(false);
+            expect(requireAdmin(session as Session)).toBe(false);
         });
 
         it('应该对 null session 返回 false', () => {
@@ -57,7 +58,7 @@ describe('auth-utils', () => {
             const session = {
                 user: undefined,
                 expires: '2025-12-31',
-            } as any;
+            } as unknown as Session;
             expect(requireAdmin(session)).toBe(false);
         });
     });

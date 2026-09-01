@@ -4,6 +4,14 @@ test('Admin can configure OpenAI settings with multi-instance support', async ({
     // 增加测试超时时间
     test.setTimeout(60000);
 
+    let settingsConfig: Record<string, unknown> = { aiProvider: 'gemini' };
+    await page.route('**/api/settings', async route => {
+        if (route.request().method() === 'POST') {
+            settingsConfig = route.request().postDataJSON();
+        }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settingsConfig) });
+    });
+
     // 1. Login as Admin
     await page.goto('/login');
     await page.locator('input[name="email"]').fill('admin@localhost');
@@ -81,7 +89,7 @@ test('Admin can configure OpenAI settings with multi-instance support', async ({
 
     // Verify values match
     // First combobox should be AI Provider, second should be instance selector
-    await expect(page.locator('button[role="combobox"]').first()).toHaveText('OpenAI / Compatible');
+    await expect(page.getByRole('dialog').locator('button[role="combobox"]').first()).toHaveText('OpenAI / Compatible');
     await expect(page.locator('input[placeholder="sk-..."]')).toHaveValue(apiKey);
     await expect(page.locator('input[placeholder="https://api.openai.com/v1"]')).toHaveValue(baseURL);
     await expect(page.locator('input[placeholder="gpt-4o"]')).toHaveValue(modelName);

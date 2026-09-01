@@ -15,7 +15,7 @@ interface LogEntry {
   level: LogLevel;
   prefix: string;
   message: string;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
   timestamp: string;
   url: string;
   userAgent: string;
@@ -39,7 +39,7 @@ class FrontendLogger {
     level: LogLevel,
     prefix: string,
     message: string,
-    context?: Record<string, any>
+    context?: Record<string, unknown>
   ) {
     const entry: LogEntry = {
       level,
@@ -95,32 +95,32 @@ class FrontendLogger {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ logs }),
-      }).catch((err) => {
+      }).catch((error) => {
         // Silently fail - don't disrupt user experience
-        console.warn('Failed to send logs to backend:', err);
+        console.warn('Failed to send logs to backend:', error);
       });
-    } catch (err) {
+    } catch {
       // Silently fail
     }
   }
 
-  info(prefix: string, message: string, context?: Record<string, any>, options: LogOptions = {}) {
+  info(prefix: string, message: string, context?: Record<string, unknown>, options: LogOptions = {}) {
     console.log(`${prefix} ${message}`, context || '');
 
-    if (options.sendToBackend !== false) {
+    if (process.env.NODE_ENV !== 'production' && options.sendToBackend !== false) {
       this.addToBuffer('info', prefix, message, context);
     }
   }
 
-  warn(prefix: string, message: string, context?: Record<string, any>, options: LogOptions = {}) {
+  warn(prefix: string, message: string, context?: Record<string, unknown>, options: LogOptions = {}) {
     console.warn(`${prefix} ${message}`, context || '');
 
-    if (options.sendToBackend !== false) {
+    if (process.env.NODE_ENV !== 'production' && options.sendToBackend !== false) {
       this.addToBuffer('warn', prefix, message, context);
     }
   }
 
-  error(prefix: string, message: string, context?: Record<string, any>, options: LogOptions = {}) {
+  error(prefix: string, message: string, context?: Record<string, unknown>, options: LogOptions = {}) {
     console.error(`${prefix} ${message}`, context || '');
 
     if (options.sendToBackend !== false) {

@@ -21,10 +21,12 @@ const mocks = vi.hoisted(() => ({
     },
     mockPrismaKnowledgeTag: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
         create: vi.fn(),
     },
     mockPrismaSubject: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
     },
     mockSession: {
         user: {
@@ -85,9 +87,13 @@ describe('/api/error-items', () => {
 
         // Default: subject not found (handle null case)
         mocks.mockPrismaSubject.findUnique.mockResolvedValue(null);
+        mocks.mockPrismaSubject.findFirst.mockImplementation(async (args: { where?: { id?: string } }) => {
+            const id = args?.where?.id;
+            return id ? { id, name: 'Math', userId: 'user-123' } : null;
+        });
 
         // Default: knowledgeTag returns a mock tag (used when finding existing tags)
-        mocks.mockPrismaKnowledgeTag.findFirst.mockImplementation(async (args: any) => {
+        mocks.mockPrismaKnowledgeTag.findFirst.mockImplementation(async (args: { where?: { name?: string } }) => {
             // Return a mock tag based on the search name
             const name = args?.where?.name;
             if (name) {
@@ -97,13 +103,16 @@ describe('/api/error-items', () => {
         });
 
         // Default: create returns the created tag
-        mocks.mockPrismaKnowledgeTag.create.mockImplementation(async (args: any) => ({
+        mocks.mockPrismaKnowledgeTag.create.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
             id: `tag-new-${Date.now()}`,
             ...args.data,
         }));
 
         // Default: errorItem.findFirst returns null (no duplicate found)
-        mocks.mockPrismaErrorItem.findFirst.mockResolvedValue(null);
+        mocks.mockPrismaErrorItem.findFirst.mockImplementation(async (args: { where?: { id?: string; userId?: string } }) => {
+            return args?.where?.id && args?.where?.userId ? { id: args.where.id } : null;
+        });
+        mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue([]);
     });
 
     describe('POST /api/error-items (创建错题)', () => {
@@ -113,7 +122,7 @@ describe('/api/error-items', () => {
                 answerText: 'x = 3',
                 analysis: '移项得 x = 5 - 2 = 3',
                 knowledgePoints: ['一元一次方程', '移项'],
-                originalImageUrl: 'data:image/png;base64,test...',
+                originalImageUrl: 'data:image/png;base64,dGVzdA==',
             };
 
             const createdItem = {
@@ -145,7 +154,7 @@ describe('/api/error-items', () => {
                 answerText: '2',
                 analysis: '简单加法',
                 knowledgePoints: ['加法'],
-                originalImageUrl: 'data:image/png;base64,test...',
+                originalImageUrl: 'data:image/png;base64,dGVzdA==',
                 subjectId: 'subject-math-id',
             };
 
@@ -176,7 +185,7 @@ describe('/api/error-items', () => {
                 answerText: 'x = 5',
                 analysis: '解析',
                 knowledgePoints: ['方程'],
-                originalImageUrl: 'data:image/png;base64,test...',
+                originalImageUrl: 'data:image/png;base64,dGVzdA==',
                 gradeSemester: '初一上期',
                 paperLevel: 'A',
             };
@@ -229,7 +238,7 @@ describe('/api/error-items', () => {
                 answerText: '答案',
                 analysis: '解析',
                 knowledgePoints: ['知识点'],
-                originalImageUrl: 'data:image/png;base64,test...',
+                originalImageUrl: 'data:image/png;base64,dGVzdA==',
                 // 不提供 gradeSemester，应该自动计算
             };
 
@@ -254,13 +263,13 @@ describe('/api/error-items', () => {
             expect(mocks.mockPrismaErrorItem.create).toHaveBeenCalled();
         });
 
-        it('应该正确处理字符串格式的知识点', async () => {
+        it('应该拒绝字符串格式的知识点', async () => {
             const errorItemData = {
                 questionText: '题目',
                 answerText: '答案',
                 analysis: '解析',
                 knowledgePoints: '一元一次方程, 移项',
-                originalImageUrl: 'data:image/png;base64,test...',
+                originalImageUrl: 'data:image/png;base64,dGVzdA==',
             };
 
             mocks.mockPrismaErrorItem.create.mockResolvedValue({
@@ -278,7 +287,7 @@ describe('/api/error-items', () => {
 
             const response = await POST(request);
 
-            expect(response.status).toBe(201);
+            expect(response.status).toBe(400);
         });
     });
 
@@ -291,7 +300,7 @@ describe('/api/error-items', () => {
                 answerText: 'x = 3',
                 analysis: '移项得 x = 5 - 2 = 3',
                 knowledgePoints: '["一元一次方程", "移项"]',
-                originalImageUrl: 'data:image/png;base64,test...',
+                originalImageUrl: 'data:image/png;base64,dGVzdA==',
                 masteryLevel: 0,
                 subject: { id: 'math', name: '数学' },
             };
@@ -341,7 +350,7 @@ describe('/api/error-items', () => {
                 userId: 'user-123',
                 knowledgePoints: '["旧知识点"]',
             };
-            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(existingItem);
             mocks.mockPrismaErrorItem.update.mockResolvedValue({
                 ...existingItem,
                 knowledgePoints: '["新知识点1", "新知识点2"]',
@@ -411,11 +420,7 @@ describe('/api/error-items', () => {
         });
 
         it('应该拒绝更新其他用户的错题', async () => {
-            const existingItem = {
-                id: 'error-item-1',
-                userId: 'other-user-id', // 不同的用户
-            };
-            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(null);
 
             const request = new Request('http://localhost/api/error-items/error-item-1', {
                 method: 'PUT',
@@ -426,12 +431,12 @@ describe('/api/error-items', () => {
             const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
-            expect(response.status).toBe(403);
-            expect(data.message).toContain('Not authorized');
+            expect(response.status).toBe(404);
+            expect(data.message).toBe('Item not found');
         });
 
         it('应该返回 404 当错题不存在', async () => {
-            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(null);
+            mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(null);
 
             const request = new Request('http://localhost/api/error-items/not-exist', {
                 method: 'PUT',
@@ -459,22 +464,18 @@ describe('/api/error-items', () => {
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue([
                 {
                     gradeSemester: '三年级上',
-                    knowledgePoints: '["不应出现"]',
                     tags: [{ name: '分数加法' }],
                 },
                 {
                     gradeSemester: '三年级上',
-                    knowledgePoints: '["旧知识点", "分数加法", 1]',
-                    tags: [],
+                    tags: [{ name: '旧知识点' }, { name: '分数加法' }],
                 },
                 {
                     gradeSemester: '四年级下',
-                    knowledgePoints: 'invalid json',
                     tags: [],
                 },
                 {
                     gradeSemester: '',
-                    knowledgePoints: '{"name":"不是数组"}',
                     tags: [],
                 },
             ]);
@@ -489,7 +490,6 @@ describe('/api/error-items', () => {
             expect(data.grades).toEqual(expect.arrayContaining(['三年级上', '四年级下']));
             expect(data.tags).toHaveLength(2);
             expect(data.tags).toEqual(expect.arrayContaining(['分数加法', '旧知识点']));
-            expect(data.tags).not.toContain('不应出现');
             expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: { userId: 'user-123', subjectId: 'notebook-1' },
@@ -527,6 +527,9 @@ describe('/api/error-items', () => {
             expect(data.page).toBe(1);
             expect(data.pageSize).toBe(18);
             expect(data.totalPages).toBe(1);
+            expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+                select: expect.not.objectContaining({ originalImageUrl: true }),
+            }));
         });
 
         it('应该支持按科目筛选', async () => {
@@ -571,18 +574,22 @@ describe('/api/error-items', () => {
             );
         });
 
-        it('应该支持按掌握程度筛选', async () => {
+        it.each([
+            ['0', 0],
+            ['1', 1],
+            ['2', 2],
+        ])('应该精确筛选掌握程度 %s', async (queryLevel, masteryLevel) => {
             mocks.mockPrismaErrorItem.count.mockResolvedValue(0);
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue([]);
 
-            const request = new Request('http://localhost/api/error-items/list?mastery=1');
+            const request = new Request(`http://localhost/api/error-items/list?mastery=${queryLevel}`);
             const response = await GET_LIST(request);
 
             expect(response.status).toBe(200);
             expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: expect.objectContaining({
-                        masteryLevel: { gt: 0 },
+                        masteryLevel,
                     }),
                 })
             );
@@ -600,17 +607,7 @@ describe('/api/error-items', () => {
                 expect.objectContaining({
                     where: expect.objectContaining({
                         AND: expect.arrayContaining([
-                            {
-                                OR: [
-                                    { tags: { some: { name: '一元一次方程' } } },
-                                    {
-                                        AND: [
-                                            { tags: { none: {} } },
-                                            { knowledgePoints: { contains: '"一元一次方程"' } },
-                                        ],
-                                    },
-                                ],
-                            },
+                            { tags: { some: { name: '一元一次方程' } } },
                         ]),
                     }),
                 })
@@ -825,7 +822,7 @@ describe('/api/error-items', () => {
         });
 
         it('应该支持不同级别的掌握程度', async () => {
-            const levels = [0, 1, 2, 3];
+            const levels = [0, 1, 2];
 
             for (const level of levels) {
                 // Mock ownership check (findUnique)
@@ -895,7 +892,7 @@ describe('/api/error-items', () => {
                 userId: 'user-123',
                 questionText: '要删除的错题',
             };
-            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(existingItem);
             mocks.mockPrismaErrorItem.delete.mockResolvedValue(existingItem);
 
             const request = new Request('http://localhost/api/error-items/error-item-1/delete', {
@@ -908,12 +905,12 @@ describe('/api/error-items', () => {
             expect(response.status).toBe(200);
             expect(data.message).toBe('Deleted successfully');
             expect(mocks.mockPrismaErrorItem.delete).toHaveBeenCalledWith({
-                where: { id: 'error-item-1' },
+                where: { id: 'error-item-1', userId: 'user-123' },
             });
         });
 
         it('应该返回 404 当错题不存在', async () => {
-            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(null);
+            mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(null);
 
             const request = new Request('http://localhost/api/error-items/not-exist/delete', {
                 method: 'DELETE',
@@ -928,12 +925,7 @@ describe('/api/error-items', () => {
         });
 
         it('应该拒绝删除其他用户的错题', async () => {
-            const existingItem = {
-                id: 'error-item-1',
-                userId: 'other-user-id', // 不同的用户
-                questionText: '其他人的错题',
-            };
-            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(null);
 
             const request = new Request('http://localhost/api/error-items/error-item-1/delete', {
                 method: 'DELETE',
@@ -942,8 +934,8 @@ describe('/api/error-items', () => {
             const response = await DELETE_ITEM(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
-            expect(response.status).toBe(403);
-            expect(data.message).toContain('Not authorized');
+            expect(response.status).toBe(404);
+            expect(data.message).toBe('Item not found');
             expect(mocks.mockPrismaErrorItem.delete).not.toHaveBeenCalled();
         });
 

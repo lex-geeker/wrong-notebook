@@ -12,8 +12,9 @@ import {
 describe("practice session helpers", () => {
     it("judges normalized answers and updates mastery", () => {
         expect(judgePracticeAnswer(" Ａ。 ", "A. 选项内容")).toEqual({ isCorrect: true, matchType: "choice" });
-        expect(judgePracticeAnswer("linear equation", "A linear equation")).toEqual({ isCorrect: true, matchType: "contains" });
-        expect(judgePracticeAnswer("4", "5")).toEqual({ isCorrect: false, matchType: "mismatch" });
+        expect(judgePracticeAnswer("linear equation", "A linear equation")).toEqual({ isCorrect: null, matchType: "self_assessment" });
+        expect(judgePracticeAnswer("4", "5")).toEqual({ isCorrect: null, matchType: "self_assessment" });
+        expect(judgePracticeAnswer("A", "Apple")).toEqual({ isCorrect: null, matchType: "self_assessment" });
         expect(nextMasteryLevel(1, true)).toBe(2);
         expect(nextMasteryLevel(2, true)).toBe(2);
         expect(nextMasteryLevel(2, false)).toBe(0);

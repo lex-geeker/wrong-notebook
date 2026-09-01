@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 
@@ -8,7 +9,7 @@ describe('seed-admin docker helper', () => {
         const prisma = {
             user: {
                 findUnique: vi.fn().mockResolvedValue(null),
-                create: vi.fn().mockImplementation(async ({ data }) => {
+                create: vi.fn().mockImplementation(async ({ data }: { data: { email: string } }) => {
                     createdUsers.push(data);
                     return { email: data.email };
                 }),

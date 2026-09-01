@@ -5,6 +5,7 @@ import { OpenAIProvider } from '@/lib/ai/openai-provider';
 import { GeminiProvider } from '@/lib/ai/gemini-provider';
 import { AzureOpenAIProvider } from '@/lib/ai/azure-provider';
 import { createLogger } from '@/lib/logger';
+import { isAdmin } from '@/lib/auth-utils';
 
 const logger = createLogger('api:ai:test');
 
@@ -91,19 +92,33 @@ export interface AITestResponse {
     modelInfo?: string;
 }
 
+function isValidHttpUrl(value: string | undefined) {
+    if (!value) return true;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
 export async function POST(request: NextRequest) {
     try {
         // 验证登录
         const session = await getServerSession(authOptions);
-        if (!session?.user) {
+        if (!session?.user?.id) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+        if (!isAdmin(session.user)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
         const body: AITestRequest = await request.json();
         const { provider, apiKey, baseUrl, model, endpoint, deploymentName, apiVersion, language = 'zh' } = body;
 
         if (!provider || !apiKey) {
             return NextResponse.json({ error: 'Missing provider or apiKey' }, { status: 400 });
+        }
+        if (!isValidHttpUrl(baseUrl) || !isValidHttpUrl(endpoint)) {
+            return NextResponse.json({ error: 'Endpoint must use HTTP or HTTPS' }, { status: 400 });
         }
 
         logger.info({ provider, model, baseUrl: baseUrl || endpoint }, 'AI 连接测试开始');

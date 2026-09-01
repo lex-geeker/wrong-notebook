@@ -11,7 +11,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
-    const { params, headers, timeout = 60000, ...rest } = options;
+    const { params, headers, timeout = 60000, signal: callerSignal, ...rest } = options;
 
     let finalUrl = url;
     if (params) {
@@ -24,8 +24,8 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
     };
 
     // 创建 AbortController 用于超时控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const timeoutSignal = AbortSignal.timeout(timeout);
+    const signal = callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal;
 
     try {
         const res = await fetch(finalUrl, {
@@ -33,36 +33,26 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
                 ...defaultHeaders,
                 ...headers,
             },
-            signal: controller.signal,
             ...rest,
+            signal,
         });
-        clearTimeout(timeoutId);
 
-        if (!res.ok) {
-            let errorData;
+        if (res.status === 204) return {} as T;
+
+        const raw = await res.text();
+        let data: unknown = {};
+        if (raw) {
             try {
-                errorData = await res.json();
+                data = JSON.parse(raw);
             } catch {
-                errorData = await res.text();
+                data = raw;
             }
-            throw new ApiError(res.status, res.statusText, errorData);
         }
 
-        // Handle empty responses (e.g. 204 No Content)
-        if (res.status === 204) {
-            return {} as T;
-        }
-
-        try {
-            return await res.json();
-        } catch {
-            // If JSON parse fails but response was OK, return text or empty object?
-            // For now, assume JSON APIs.
-            return {} as T;
-        }
+        if (!res.ok) throw new ApiError(res.status, res.statusText, data);
+        return data as T;
     } catch (error) {
-        clearTimeout(timeoutId);
-        if (error instanceof Error && error.name === 'AbortError') {
+        if (timeoutSignal.aborted) {
             throw new ApiError(408, 'Request Timeout', {
                 message: 'AI_TIMEOUT_ERROR'
             });
@@ -73,8 +63,8 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
 
 export const apiClient = {
     get: <T>(url: string, options?: RequestOptions) => request<T>(url, { ...options, method: 'GET' }),
-    post: <TResponse, TBody = any>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'POST', body: JSON.stringify(body) }),
-    put: <TResponse, TBody = any>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'PUT', body: JSON.stringify(body) }),
-    patch: <TResponse, TBody = any>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'PATCH', body: JSON.stringify(body) }),
+    post: <TResponse, TBody = unknown>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'POST', body: JSON.stringify(body) }),
+    put: <TResponse, TBody = unknown>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+    patch: <TResponse, TBody = unknown>(url: string, body: TBody, options?: RequestOptions) => request<TResponse>(url, { ...options, method: 'PATCH', body: JSON.stringify(body) }),
     delete: <T>(url: string, options?: RequestOptions) => request<T>(url, { ...options, method: 'DELETE' }),
 };

@@ -1,4 +1,4 @@
-import { NextAuthOptions } from "next-auth"
+import { NextAuthOptions, Session } from "next-auth"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
@@ -81,8 +81,7 @@ export const authOptions: NextAuthOptions = {
             }
         })
     ],
-    // Enable debug messages in the console
-    debug: true,
+    debug: process.env.NODE_ENV === "development",
     logger: {
         error(code, metadata) {
             logger.error({ code, metadata }, 'NextAuth error');
@@ -97,6 +96,9 @@ export const authOptions: NextAuthOptions = {
     callbacks: {
         async session({ session, token }) {
             logger.debug({ userId: token.id }, 'Session callback');
+            if (token.isActive === false) {
+                return { ...session, user: undefined } as unknown as Session;
+            }
             return {
                 ...session,
                 user: {
@@ -106,17 +108,28 @@ export const authOptions: NextAuthOptions = {
                 }
             }
         },
-        async jwt({ token, user, account, profile }) {
+        async jwt({ token, user }) {
             if (user) {
                 logger.debug({ userId: user.id }, 'JWT callback - Initial signin');
                 return {
                     ...token,
                     id: user.id,
-                    role: (user as any).role,
+                    role: user.role,
+                    isActive: true,
                 }
             }
+            if (!token.id) return { ...token, isActive: false };
+
+            const currentUser = await prisma.user.findUnique({
+                where: { id: token.id },
+                select: { role: true, isActive: true },
+            });
             logger.debug('JWT callback - Subsequent call');
-            return token
+            return {
+                ...token,
+                role: currentUser?.role,
+                isActive: currentUser?.isActive === true,
+            }
         }
     }
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
+import { unauthorized, notFound, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:error-items:delete');
@@ -27,21 +27,17 @@ export async function DELETE(
         }
 
         // Verify ownership before deletion
-        const errorItem = await prisma.errorItem.findUnique({
-            where: { id: id },
+        const errorItem = await prisma.errorItem.findFirst({
+            where: { id, userId: user.id },
         });
 
         if (!errorItem) {
             return notFound("Item not found");
         }
 
-        if (errorItem.userId !== user.id) {
-            return forbidden("Not authorized to delete this item");
-        }
-
         // Delete the item
         await prisma.errorItem.delete({
-            where: { id: id },
+            where: { id, userId: user.id },
         });
 
         return NextResponse.json({ message: "Deleted successfully" });

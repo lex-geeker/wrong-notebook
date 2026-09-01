@@ -11,7 +11,7 @@ import { CreateNotebookDialog } from "@/components/create-notebook-dialog";
 import { RenameNotebookDialog } from "@/components/rename-notebook-dialog";
 
 import { Notebook } from "@/types/api";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiError } from "@/lib/api-client";
 
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -44,9 +44,11 @@ export default function NotebooksPage() {
         try {
             await apiClient.post("/api/notebooks", { name });
             await fetchNotebooks();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            const message = error.data?.message || t.notebooks?.createError || "Failed to create";
+            const data = error instanceof ApiError ? error.data : null;
+            const message = data && typeof data === "object" && "message" in data && typeof data.message === "string"
+                ? data.message : t.notebooks?.createError || "Failed to create";
             alert(message);
         }
     };
@@ -68,9 +70,11 @@ export default function NotebooksPage() {
         try {
             await apiClient.delete(`/api/notebooks/${id}`);
             await fetchNotebooks();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            const message = error.data?.message || t.notebooks?.deleteError || "Failed to delete";
+            const data = error instanceof ApiError ? error.data : null;
+            const message = data && typeof data === "object" && "message" in data && typeof data.message === "string"
+                ? data.message : t.notebooks?.deleteError || "Failed to delete";
             alert(message);
         }
     };

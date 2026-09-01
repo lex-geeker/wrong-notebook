@@ -16,20 +16,23 @@ export async function GET() {
     }
 
     try {
-        // 总用户数
-        const totalUsers = await prisma.user.count()
-
-        // 总错题数
-        const totalErrorItems = await prisma.errorItem.count()
-
-        // 总练习记录数
-        const totalPracticeRecords = await prisma.practiceRecord.count()
-
-        // 总错题本数
-        const totalSubjects = await prisma.subject.count()
-
-        // 每个用户的详细统计
-        const userStats = await prisma.user.findMany({
+        const now = new Date()
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        const [
+            totalUsers,
+            totalErrorItems,
+            totalPracticeRecords,
+            totalSubjects,
+            userStats,
+            subjectDistribution,
+            recentErrorItems,
+            masteryStats,
+        ] = await Promise.all([
+            prisma.user.count(),
+            prisma.errorItem.count(),
+            prisma.practiceRecord.count(),
+            prisma.subject.count(),
+            prisma.user.findMany({
             orderBy: {
                 createdAt: 'desc'
             },
@@ -50,10 +53,8 @@ export async function GET() {
                     }
                 }
             }
-        })
-
-        // 按学科统计错题分布
-        const subjectDistribution = await prisma.subject.findMany({
+            }),
+            prisma.subject.findMany({
             select: {
                 name: true,
                 _count: {
@@ -67,22 +68,20 @@ export async function GET() {
                     _count: 'desc'
                 }
             }
-        })
-
-        // 最近 7 天的错题录入趋势
-        const now = new Date()
-        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-        const recentErrorItems = await prisma.errorItem.groupBy({
-            by: ['createdAt'],
+            }),
+            prisma.errorItem.findMany({
             where: {
                 createdAt: {
                     gte: sevenDaysAgo
                 }
             },
-            _count: {
-                id: true
-            }
-        })
+                select: { createdAt: true },
+            }),
+            prisma.errorItem.groupBy({
+                by: ['masteryLevel'],
+                _count: { id: true },
+            }),
+        ])
 
         // 按日期聚合最近 7 天数据
         const dailyTrend: { date: string; count: number }[] = []
@@ -95,17 +94,10 @@ export async function GET() {
             const dateStr = new Date(item.createdAt).toISOString().split('T')[0]
             const found = dailyTrend.find(d => d.date === dateStr)
             if (found) {
-                found.count += item._count.id
+                found.count++
             }
         }
 
-        // 掌握度统计 (全局)
-        const masteryStats = await prisma.errorItem.groupBy({
-            by: ['masteryLevel'],
-            _count: {
-                id: true
-            }
-        })
         const masteryDistribution = {
             new: masteryStats.find(m => m.masteryLevel === 0)?._count.id || 0,
             reviewing: masteryStats.find(m => m.masteryLevel === 1)?._count.id || 0,

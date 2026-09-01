@@ -26,7 +26,7 @@ const candidate = (id: string, createdAt: string) => ({
     questionText: `question-${id}`,
     answerText: `answer-${id}`,
     gradeSemester: null,
-    knowledgePoints: "[]",
+    tags: [],
     subject: { name: "Math" },
     practiceRecords: [],
 });
@@ -78,6 +78,20 @@ describe("POST /api/practice/sessions", () => {
         expect(response.status).toBe(201);
         expect(createdItems).toHaveLength(2);
         expect(createdItems.map((item: { errorItemId: string }) => item.errorItemId)).toEqual(["earlier", "later"]);
+    });
+
+    it.each([1, 2, 3, 4, 5])("creates exactly %i questions when that many are due", async (dueCount) => {
+        mocks.findMany.mockResolvedValue(Array.from({ length: dueCount }, (_, index) =>
+            candidate(`due-${index}`, `2020-01-${String(index + 1).padStart(2, "0")}T00:00:00Z`)));
+
+        const response = await POST(request({ mode: "ebbinghaus", filters: { subjectId: "math" } }));
+        const createdItems = mocks.createSession.mock.calls[0][0].data.items.create;
+
+        expect(response.status).toBe(201);
+        expect(createdItems).toHaveLength(dueCount);
+        expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ subjectId: "math" }),
+        }));
     });
 
     it("returns a structured empty-due response", async () => {

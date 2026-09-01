@@ -6,6 +6,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
+const authMocks = vi.hoisted(() => ({ getServerSession: vi.fn() }));
+
 // Mock logger
 vi.mock('@/lib/logger', () => ({
     createLogger: vi.fn(() => ({
@@ -18,22 +20,28 @@ vi.mock('@/lib/logger', () => ({
     })),
 }));
 
+vi.mock('next-auth', () => ({
+    getServerSession: authMocks.getServerSession,
+}));
+vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { GET } from '@/app/api/ai/models/route';
+import { POST } from '@/app/api/ai/models/route';
 
 function makeRequest(params: Record<string, string>): NextRequest {
-    const url = new URL('http://localhost/api/ai/models');
-    for (const [k, v] of Object.entries(params)) {
-        url.searchParams.set(k, v);
-    }
-    return new NextRequest(url);
+    return new NextRequest('http://localhost/api/ai/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai', ...params }),
+    });
 }
 
-describe('GET /api/ai/models - Gemini provider', () => {
+describe('POST /api/ai/models - Gemini provider', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        authMocks.getServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'admin' } });
     });
 
     it('应该正确获取并返回 Gemini 视觉模型列表', async () => {
@@ -49,7 +57,7 @@ describe('GET /api/ai/models - Gemini provider', () => {
         });
 
         const req = makeRequest({ provider: 'gemini', apiKey: 'test-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(200);
@@ -74,11 +82,11 @@ describe('GET /api/ai/models - Gemini provider', () => {
             apiKey: 'my-key',
             baseUrl: 'https://custom.google.com',
         });
-        await GET(req);
+        await POST(req);
 
         expect(mockFetch).toHaveBeenCalledWith(
-            'https://custom.google.com/v1beta/models?key=my-key',
-            expect.any(Object)
+            'https://custom.google.com/v1beta/models',
+            expect.objectContaining({ headers: expect.objectContaining({ 'x-goog-api-key': 'my-key' }) })
         );
     });
 
@@ -96,11 +104,11 @@ describe('GET /api/ai/models - Gemini provider', () => {
         });
 
         const req = makeRequest({ provider: 'gemini', apiKey: 'test-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(body.models).toHaveLength(4);
-        expect(body.models.map((m: any) => m.id)).toEqual([
+        expect(body.models.map((model: { id: string }) => model.id)).toEqual([
             'gemini-2.0-flash',
             'text-embedding-004',
             'gemini-1.5-pro',
@@ -115,7 +123,7 @@ describe('GET /api/ai/models - Gemini provider', () => {
         });
 
         const req = makeRequest({ provider: 'gemini', apiKey: 'test-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(200);
@@ -129,7 +137,7 @@ describe('GET /api/ai/models - Gemini provider', () => {
         });
 
         const req = makeRequest({ provider: 'gemini', apiKey: 'test-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(200);
@@ -144,7 +152,7 @@ describe('GET /api/ai/models - Gemini provider', () => {
         });
 
         const req = makeRequest({ provider: 'gemini', apiKey: 'bad-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(200);
@@ -154,17 +162,27 @@ describe('GET /api/ai/models - Gemini provider', () => {
 
     it('缺少 apiKey 时应返回 400', async () => {
         const req = makeRequest({ provider: 'gemini' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(400);
-        expect(body.error).toBe('API key is required');
+        expect(body.error).toBe('Invalid model request');
+    });
+
+    it('普通用户不能代理模型请求', async () => {
+        authMocks.getServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'user' } });
+
+        const res = await POST(makeRequest({ provider: 'gemini', apiKey: 'test-key' }));
+
+        expect(res.status).toBe(403);
+        expect(mockFetch).not.toHaveBeenCalled();
     });
 });
 
-describe('GET /api/ai/models - OpenAI provider', () => {
+describe('POST /api/ai/models - OpenAI provider', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        authMocks.getServerSession.mockResolvedValue({ user: { id: 'admin-1', role: 'admin' } });
     });
 
     it('应该正确获取并返回 OpenAI 视觉模型列表', async () => {
@@ -180,7 +198,7 @@ describe('GET /api/ai/models - OpenAI provider', () => {
         });
 
         const req = makeRequest({ apiKey: 'test-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(200);
@@ -198,11 +216,18 @@ describe('GET /api/ai/models - OpenAI provider', () => {
         });
 
         const req = makeRequest({ apiKey: 'bad-key' });
-        const res = await GET(req);
+        const res = await POST(req);
         const body = await res.json();
 
         expect(res.status).toBe(200);
         expect(body.models).toEqual([]);
         expect(body.error).toContain('API error');
+    });
+
+    it.each(['ftp://models.example.com', 'file:///tmp/models'])('拒绝非 HTTP 模型地址 %s', async (baseUrl) => {
+        const res = await POST(makeRequest({ apiKey: 'test-key', baseUrl }));
+
+        expect(res.status).toBe(400);
+        expect(mockFetch).not.toHaveBeenCalled();
     });
 });

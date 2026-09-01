@@ -23,7 +23,6 @@ export async function GET(req: Request) {
             where: { userId: user.id, subjectId },
             select: {
                 gradeSemester: true,
-                knowledgePoints: true,
                 tags: { select: { name: true } },
             },
         });
@@ -34,19 +33,7 @@ export async function GET(req: Request) {
         for (const item of items) {
             if (item.gradeSemester?.trim()) grades.add(item.gradeSemester);
 
-            if (item.tags.length > 0) {
-                item.tags.forEach(({ name }) => name.trim() && tags.add(name));
-                continue;
-            }
-
-            try {
-                const legacyTags = JSON.parse(item.knowledgePoints || "[]");
-                if (Array.isArray(legacyTags)) {
-                    legacyTags.forEach((name) => typeof name === "string" && name.trim() && tags.add(name));
-                }
-            } catch {
-                // Ignore malformed legacy data.
-            }
+            item.tags.forEach(({ name }) => name.trim() && tags.add(name));
         }
 
         return NextResponse.json({

@@ -10,13 +10,18 @@ import { apiClient } from "@/lib/api-client";
 import { AnalyticsData } from "@/types/api";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+interface ChartTooltipProps {
+    active?: boolean;
+    payload?: Array<{ value?: number | string }>;
+    label?: string | number;
+}
 
 export function WrongAnswerStats() {
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
 
-    const CustomTooltip = ({ active, payload, label }: any) => {
+    const CustomTooltip = ({ active, payload, label }: ChartTooltipProps) => {
         if (active && payload && payload.length) {
             return (
                 <div className="bg-background border rounded-lg shadow-lg p-3 text-sm">

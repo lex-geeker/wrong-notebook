@@ -7,7 +7,7 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:stats:practice:clear');
 
-export async function DELETE() {
+export async function DELETE(_request?: Request) {
     const session = await getServerSession(authOptions);
 
     if (!session || !session.user) {

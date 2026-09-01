@@ -47,13 +47,11 @@ export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModel
         setError(null);
 
         try {
-            const params = new URLSearchParams({
+            const data = await apiClient.post<ModelsResponse>('/api/ai/models', {
                 provider,
                 apiKey,
                 ...(baseUrl && { baseUrl }),
             });
-
-            const data = await apiClient.get<ModelsResponse>(`/api/ai/models?${params}`);
 
             // Check if there's an error message in the response
             if ('error' in data && typeof data.error === 'string') {
@@ -69,9 +67,9 @@ export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModel
                 setError(t.modelSelector?.noVisionModel || "No vision model found, please enter manually");
                 setUseCustom(true);
             }
-        } catch (err: any) {
-            console.error("Failed to fetch models:", err);
-            const errorMsg = err?.message || (t.modelSelector?.fetchFailed || "Failed to fetch models");
+        } catch (error: unknown) {
+            console.error("Failed to fetch models:", error);
+            const errorMsg = error instanceof Error ? error.message : (t.modelSelector?.fetchFailed || "Failed to fetch models");
             setError(errorMsg + (t.modelSelector?.enterManually || ", please enter manually"));
             setUseCustom(true);
         } finally {

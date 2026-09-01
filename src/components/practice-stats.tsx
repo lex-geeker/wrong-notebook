@@ -17,12 +17,25 @@ const DIFFICULTY_COLORS: Record<string, string> = {
     'Unknown': '#94a3b8' // Slate-400
 };
 
-const CustomTooltip = ({ active, payload, label, t }: any) => {
+interface ChartPayloadEntry {
+    color?: string;
+    name?: string;
+    value?: number | string;
+}
+
+interface CustomTooltipProps {
+    active?: boolean;
+    payload?: ChartPayloadEntry[];
+    label?: string | number;
+    t: ReturnType<typeof useLanguage>["t"];
+}
+
+const CustomTooltip = ({ active, payload, label, t }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
         return (
             <div className="bg-background border rounded-lg shadow-lg p-3 text-sm">
                 <p className="font-medium mb-2">{label}</p>
-                {payload.map((entry: any, index: number) => (
+                {payload.map((entry, index) => (
                     <div key={index} className="flex items-center gap-2 mb-1 last:mb-0">
                         <div
                             className="w-3 h-3 rounded-full"
@@ -39,7 +52,7 @@ const CustomTooltip = ({ active, payload, label, t }: any) => {
                 <div className="mt-2 pt-2 border-t flex justify-between gap-4">
                     <span className="text-muted-foreground">{t.stats?.total || "Total"}:</span>
                     <span className="font-bold">
-                        {payload.reduce((acc: number, curr: any) => acc + (typeof curr.value === 'number' ? curr.value : 0), 0)}
+                        {payload.reduce((acc, curr) => acc + (typeof curr.value === 'number' ? curr.value : 0), 0)}
                     </span>
                 </div>
             </div>
@@ -79,8 +92,8 @@ export function PracticeStats() {
 
     // Helper to translate difficulty
     const getDifficultyLabel = (key: string) => {
-        // @ts-ignore
-        return t.practice?.difficulty?.[key] || key;
+        const labels = t.practice?.difficulty;
+        return labels?.[key as keyof typeof labels] || key;
     };
 
     // Get unique difficulties for the bar chart

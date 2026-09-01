@@ -20,10 +20,18 @@ interface TagTreeNode {
     children: TagTreeNode[];
 }
 
+interface TagTreeRow {
+    id: string;
+    name: string;
+    code: string | null;
+    isSystem: boolean;
+    parentId: string | null;
+}
+
 /**
  * 构建标签树
  */
-function buildTagTree(tags: any[]): TagTreeNode[] {
+function buildTagTree(tags: TagTreeRow[]): TagTreeNode[] {
     const tagMap = new Map<string, TagTreeNode>();
     const roots: TagTreeNode[] = [];
 
@@ -77,8 +85,8 @@ export async function GET(request: NextRequest) {
             where: {
                 subject,
                 OR: [
-                    { isSystem: true },
-                    { userId: session.user.id },
+                    { isSystem: true, userId: null },
+                    { isSystem: false, userId: session.user.id },
                 ],
             },
             orderBy: [
@@ -140,8 +148,26 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { name, subject, parentId } = body;
 
-        if (!name || !subject) {
+        if (typeof name !== 'string' || !name.trim() || name.length > 100 ||
+            typeof subject !== 'string' || !subject || subject.length > 50 ||
+            (parentId != null && (typeof parentId !== 'string' || parentId.length > 100))) {
             return NextResponse.json({ error: 'Name and subject are required' }, { status: 400 });
+        }
+
+        if (parentId) {
+            const parent = await prisma.knowledgeTag.findFirst({
+                where: {
+                    id: parentId,
+                    subject,
+                    OR: [
+                        { isSystem: true, userId: null },
+                        { isSystem: false, userId: session.user.id },
+                    ],
+                },
+            });
+            if (!parent) {
+                return NextResponse.json({ error: 'Invalid parent tag' }, { status: 400 });
+            }
         }
 
         // 检查是否已存在 (在同一父节点下)

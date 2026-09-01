@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { unauthorized } from "@/lib/api-errors";
 
 const logger = createLogger('api:tags:stats');
 
@@ -11,12 +14,16 @@ export const dynamic = "force-dynamic";
  * GET /api/tags/stats
  * 获取标签使用频率统计
  */
-export async function GET(req: Request) {
+export async function GET(_request?: Request) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) return unauthorized();
+
     try {
         // 获取所有错题的知识点
         const errorItems = await prisma.errorItem.findMany({
+            where: { userId: session.user.id },
             select: {
-                knowledgePoints: true,
+                tags: { select: { name: true } },
             },
         });
 
@@ -24,20 +31,9 @@ export async function GET(req: Request) {
         const tagStats: Record<string, number> = {};
 
         errorItems.forEach((item) => {
-            if (item.knowledgePoints) {
-                try {
-                    const tags = JSON.parse(item.knowledgePoints);
-                    if (Array.isArray(tags)) {
-                        tags.forEach((tag: string) => {
-                            if (tag && typeof tag === 'string') {
-                                tagStats[tag] = (tagStats[tag] || 0) + 1;
-                            }
-                        });
-                    }
-                } catch (e) {
-                    logger.warn({ knowledgePoints: item.knowledgePoints }, 'Failed to parse knowledgePoints for item');
-                }
-            }
+            item.tags.forEach(({ name }) => {
+                tagStats[name] = (tagStats[name] || 0) + 1;
+            });
         });
 
         // 转换为数组并按使用次数排序

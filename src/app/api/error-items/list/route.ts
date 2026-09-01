@@ -18,6 +18,7 @@ export async function GET(req: Request) {
     const mastery = searchParams.get("mastery");
     const timeRange = searchParams.get("timeRange");
     const tag = searchParams.get("tag");
+    const view = searchParams.get("view") === "print" ? "print" : "summary";
 
     // 分页参数
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
@@ -55,14 +56,14 @@ export async function GET(req: Request) {
                     { analysis: { contains: query } },
                     { wrongAnswerText: { contains: query } },
                     { mistakeAnalysis: { contains: query } },
-                    { knowledgePoints: { contains: query } },
+                    { tags: { some: { name: { contains: query } } } },
                 ]
             });
         }
 
         // Mastery filter
-        if (mastery !== null) {
-            whereClause.masteryLevel = mastery === "1" ? { gt: 0 } : 0;
+        if (mastery && ["0", "1", "2"].includes(mastery)) {
+            whereClause.masteryLevel = Number(mastery);
         }
 
         // Time range filter
@@ -83,15 +84,7 @@ export async function GET(req: Request) {
 
         if (tag) {
             andConditions.push({
-                OR: [
-                    { tags: { some: { name: tag } } },
-                    {
-                        AND: [
-                            { tags: { none: {} } },
-                            { knowledgePoints: { contains: JSON.stringify(tag) } },
-                        ],
-                    },
-                ],
+                tags: { some: { name: tag } },
             });
         }
 
@@ -112,21 +105,29 @@ export async function GET(req: Request) {
         }
 
         // 获取总数
-        const total = await prisma.errorItem.count({
-            where: whereClause,
-        });
+        const totalPromise = prisma.errorItem.count({ where: whereClause });
 
         // 分页查询
-        const errorItems = await prisma.errorItem.findMany({
+        const pagination = {
             where: whereClause,
-            orderBy: { createdAt: "desc" },
-            include: {
-                subject: true,
-                tags: true,
-            },
+            orderBy: { createdAt: "desc" } as const,
             skip: (page - 1) * pageSize,
             take: pageSize,
-        });
+        };
+        const itemsPromise = view === "print"
+            ? prisma.errorItem.findMany({ ...pagination, include: { subject: true, tags: true } })
+            : prisma.errorItem.findMany({
+                ...pagination,
+                select: {
+                    id: true,
+                    questionText: true,
+                    masteryLevel: true,
+                    mistakeStatus: true,
+                    createdAt: true,
+                    tags: { select: { id: true, name: true } },
+                },
+            });
+        const [total, errorItems] = await Promise.all([totalPromise, itemsPromise]);
 
         const totalPages = Math.ceil(total / pageSize);
 

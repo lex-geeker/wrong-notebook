@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { unauthorized, internalError, badRequest, forbidden } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { inferSubjectFromName } from "@/lib/knowledge-tags";
 
 const logger = createLogger('api:import');
 
@@ -50,7 +51,7 @@ interface ImportData {
         wrongAnswerText: string | null;
         mistakeAnalysis: string | null;
         mistakeStatus: string | null;
-        knowledgePoints: string | null;
+        knowledgePoints?: string | null;
         source: string | null;
         errorType: string | null;
         userNotes: string | null;
@@ -59,9 +60,16 @@ interface ImportData {
         paperLevel: string | null;
         createdAt: string;
         updatedAt: string;
-        tags: Array<{ id: string; name: string; subject: string }>;
+        tags: Array<{
+            id: string;
+            name: string;
+            subject: string;
+            parentId?: string | null;
+            userId?: string | null;
+            isSystem?: boolean;
+        }>;
     }>;
-    reviewSchedules: Array<{
+    reviewSchedules?: Array<{
         id: string;
         errorItemId: string;
         scheduledFor: string;
@@ -72,9 +80,11 @@ interface ImportData {
     practiceRecords: Array<{
         id: string;
         userId: string;
+        errorItemId?: string | null;
         subject: string | null;
         difficulty: string | null;
         isCorrect: boolean | null;
+        answerInput?: string | null;
         createdAt: string;
     }>;
 }
@@ -89,8 +99,20 @@ function safeParseDate(dateStr: string | undefined | null): Date | undefined {
 /** Validate masteryLevel is an integer in range [0, 2] */
 function safeMasteryLevel(val: unknown): number {
     const n = typeof val === 'number' ? val : parseInt(String(val), 10);
-    if (isNaN(n) || n < 0 || n > 2) return 0;
+    if (!Number.isInteger(n) || n < 0 || n > 2) return 0;
     return n;
+}
+
+function parseLegacyTagNames(value: string | null | undefined): string[] {
+    if (!value) return [];
+    try {
+        const parsed: unknown = JSON.parse(value);
+        return Array.isArray(parsed)
+            ? parsed.filter((name): name is string => typeof name === 'string' && name.length <= 100).slice(0, 20)
+            : [];
+    } catch {
+        return [];
+    }
 }
 
 export async function POST(req: Request) {
@@ -112,7 +134,7 @@ export async function POST(req: Request) {
     const importAll = searchParams.get('all') === 'true';
 
     // 只有管理员可以导入全部数据
-    if (importAll && (session.user as any).role !== 'admin') {
+    if (importAll && session.user.role !== 'admin') {
         return forbidden("Admin role required");
     }
 
@@ -138,7 +160,7 @@ export async function POST(req: Request) {
             subjectsCreated: 0,
             tagsCreated: 0,
             errorItemsCreated: 0,
-            reviewSchedulesCreated: 0,
+            reviewSchedulesIgnored: body.reviewSchedules?.length || 0,
             practiceRecordsCreated: 0,
             tagsLinked: 0,
         };
@@ -147,7 +169,9 @@ export async function POST(req: Request) {
         await prisma.$transaction(async (tx) => {
             // 1. 导入 subjects
             const subjectIdMap = new Map<string, string>();
+            const subjectNameMap = new Map<string, string>();
             for (const subject of (body.subjects || [])) {
+                subjectNameMap.set(subject.id, subject.name);
                 const targetUserId = importAll ? subject.userId : user.id;
                 const existing = await tx.subject.findFirst({
                     where: { name: subject.name, userId: targetUserId },
@@ -170,21 +194,19 @@ export async function POST(req: Request) {
             const tagIdMap = new Map<string, string>();
             for (const tag of (body.customTags || [])) {
                 const targetUserId = importAll ? tag.userId : user.id;
+                const newParentId = tag.parentId ? tagIdMap.get(tag.parentId) : undefined;
                 const existing = await tx.knowledgeTag.findFirst({
                     where: {
                         name: tag.name,
+                        subject: tag.subject,
                         userId: targetUserId,
+                        parentId: newParentId || null,
                         isSystem: false,
                     },
                 });
                 if (existing) {
                     tagIdMap.set(tag.id, existing.id);
                 } else {
-                    let newParentId: string | undefined;
-                    if (tag.parentId && tagIdMap.has(tag.parentId)) {
-                        newParentId = tagIdMap.get(tag.parentId);
-                    }
-
                     const created = await tx.knowledgeTag.create({
                         data: {
                             name: tag.name,
@@ -222,9 +244,8 @@ export async function POST(req: Request) {
             });
             const tagNameMap = new Map<string, string>();
             for (const tag of preloadedTags) {
-                if (!tagNameMap.has(tag.name) || (!importAll && tag.userId === user.id)) {
-                    tagNameMap.set(tag.name, tag.id);
-                }
+                const key = `${tag.subject}\0${tag.name}\0${tag.userId || ''}\0${tag.parentId || ''}`;
+                tagNameMap.set(key, tag.id);
             }
 
             // 4. 导入 error items
@@ -243,7 +264,7 @@ export async function POST(req: Request) {
                         },
                     });
                     if (existing) {
-                        // 跳过重复，但记录 ID 映射（后续 reviewSchedule 可能需要）
+                        // 跳过重复，但保留练习记录所需的 ID 映射
                         errorItemIdMap.set(item.id, existing.id);
                         continue;
                     }
@@ -261,7 +282,6 @@ export async function POST(req: Request) {
                         wrongAnswerText: item.wrongAnswerText,
                         mistakeAnalysis: item.mistakeAnalysis,
                         mistakeStatus: item.mistakeStatus,
-                        knowledgePoints: item.knowledgePoints,
                         source: item.source,
                         errorType: item.errorType,
                         userNotes: item.userNotes,
@@ -275,19 +295,51 @@ export async function POST(req: Request) {
                 stats.errorItemsCreated++;
 
                 // 关联 tags
-                if (item.tags && item.tags.length > 0) {
+                const importedTags = item.tags?.length
+                    ? item.tags
+                    : parseLegacyTagNames(item.knowledgePoints).map(name => ({
+                        id: '',
+                        name,
+                        subject: inferSubjectFromName(item.subjectId ? subjectNameMap.get(item.subjectId) || null : null) || 'other',
+                        parentId: null,
+                        userId: targetUserId,
+                        isSystem: false,
+                    }));
+                if (importedTags.length > 0) {
                     const tagConnections: { id: string }[] = [];
-                    for (const tag of item.tags) {
+                    for (const tag of importedTags) {
                         if (tagIdMap.has(tag.id)) {
                             tagConnections.push({ id: tagIdMap.get(tag.id)! });
-                        } else if (tagNameMap.has(tag.name)) {
-                            tagConnections.push({ id: tagNameMap.get(tag.name)! });
+                        } else {
+                            const ownerId = tag.isSystem ? null : targetUserId;
+                            const parentId = tag.parentId ? tagIdMap.get(tag.parentId) || tag.parentId : null;
+                            const key = `${tag.subject}\0${tag.name}\0${ownerId || ''}\0${parentId || ''}`;
+                            let tagId = tagNameMap.get(key);
+                            if (!tagId) {
+                                const fallbackKey = `${tag.subject}\0${tag.name}\0${targetUserId}\0`;
+                                const existing = await tx.knowledgeTag.findFirst({
+                                    where: {
+                                        name: tag.name,
+                                        subject: tag.subject,
+                                        parentId: null,
+                                        userId: targetUserId,
+                                        isSystem: false,
+                                    },
+                                });
+                                const created = existing || await tx.knowledgeTag.create({
+                                    data: { name: tag.name, subject: tag.subject, userId: targetUserId, parentId: null, isSystem: false },
+                                });
+                                tagId = created.id;
+                                tagNameMap.set(fallbackKey, tagId);
+                                if (!existing) stats.tagsCreated++;
+                            }
+                            tagConnections.push({ id: tagId });
                         }
                     }
 
                     if (tagConnections.length > 0) {
                         await tx.errorItem.update({
-                            where: { id: created.id },
+                            where: { id: created.id, userId: targetUserId },
                             data: {
                                 tags: { connect: tagConnections },
                             },
@@ -297,43 +349,17 @@ export async function POST(req: Request) {
                 }
             }
 
-            // 5. 导入 review schedules
-            for (const schedule of (body.reviewSchedules || [])) {
-                const newErrorItemId = errorItemIdMap.get(schedule.errorItemId);
-                if (newErrorItemId) {
-                    const scheduledFor = safeParseDate(schedule.scheduledFor);
-                    if (scheduledFor) {
-                        // 去重：同一 errorItem + 相同 scheduledFor 视为重复
-                        const existingSchedule = await tx.reviewSchedule.findFirst({
-                            where: {
-                                errorItemId: newErrorItemId,
-                                scheduledFor,
-                            },
-                        });
-                        if (existingSchedule) continue;
-
-                        await tx.reviewSchedule.create({
-                            data: {
-                                errorItemId: newErrorItemId,
-                                scheduledFor,
-                                completedAt: safeParseDate(schedule.completedAt),
-                                isCorrect: schedule.isCorrect,
-                            },
-                        });
-                        stats.reviewSchedulesCreated++;
-                    }
-                }
-            }
-
-            // 6. 导入 practice records
+            // 5. 导入 practice records
             for (const record of (body.practiceRecords || [])) {
                 const targetUserId = importAll ? record.userId : user.id;
                 await tx.practiceRecord.create({
                     data: {
                         userId: targetUserId,
+                        errorItemId: record.errorItemId ? errorItemIdMap.get(record.errorItemId) : undefined,
                         subject: record.subject,
                         difficulty: record.difficulty,
                         isCorrect: record.isCorrect,
+                        answerInput: record.answerInput,
                         createdAt: safeParseDate(record.createdAt),
                     },
                 });

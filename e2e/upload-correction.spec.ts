@@ -4,6 +4,7 @@ import path from 'path';
 test('Upload image, correct, save, and verify in notebook', async ({ page }) => {
     // 增加测试超时时间
     test.setTimeout(90000);
+    const notebookName = `E2E 数学 ${Date.now()}`;
 
     // Mock specific API calls to avoid external dependencies (AI)
     await page.route('**/api/analyze', async route => {
@@ -16,7 +17,7 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
                 answerText: '4',
                 analysis: 'Simple addition analysis.',
                 knowledgePoints: ['Math', 'Addition'],
-                subject: '数学', // Try to match the one we will create
+                subject: notebookName,
                 requiresImage: false
             })
         });
@@ -33,27 +34,11 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
     // Go to Notebooks page
     await page.goto('/notebooks');
 
-    // Check if "数学" exists, if not create it
-    try {
-        await expect(page.getByRole('link', { name: '数学' })).toBeVisible({ timeout: 3000 });
-        console.log('Notebook math already exists.');
-    } catch (e) {
-        console.log('Notebook math not found, creating...');
-        // Create it
-        await page.getByRole('button', { name: /新建|New|Create/ }).first().click();
-
-        // Dialog appears
-        await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5000 });
-
-        // Fill name using ID 'name' which we confirmed in source code
-        await page.locator('#name').fill('数学');
-
-        // Click Create
-        await page.getByRole('button', { name: /创建|Create/ }).last().click();
-
-        // Wait for creation to appear
-        await expect(page.getByText('数学')).toBeVisible({ timeout: 5000 });
-    }
+    await page.getByRole('button', { name: /新建|New|Create/ }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5000 });
+    await page.locator('#name').fill(notebookName);
+    await page.getByRole('button', { name: /创建|Create/ }).last().click();
+    await expect(page.getByText(notebookName).first()).toBeVisible({ timeout: 5000 });
 
     // 3. Go back to Home for Upload
     await page.goto('/');
@@ -72,12 +57,14 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
 
     // 6. Wait for Editor (Mocked analysis returns immediately)
     // Look for Editor Title "校对" or "Review"
-    await expect(page.getByRole('heading', { level: 2 })).toContainText(/校对|Review|Correct/, { timeout: 10000 });
+    const editorHeading = page.getByRole('heading', { level: 2, name: /校对|Review|Correct/ });
+    await expect(editorHeading).toBeVisible({ timeout: 10000 });
+    const editor = editorHeading.locator('xpath=../..');
 
     // 7. Correct the Question Text
     // Prepend "试题：" to the question text
     // Use first textarea which corresponds to Question
-    const questionBox = page.locator('textarea').nth(0);
+    const questionBox = editor.locator('textarea').first();
     await expect(questionBox).toHaveValue('2 + 2 = ?', { timeout: 5000 }); // From mock
     await questionBox.fill('试题：2 + 2 = ?');
 
@@ -86,24 +73,24 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
 
     // 8. Select Notebook (if not matched)
     // Our mock returned "数学". The code tries to auto-select.
-    const notebookSelector = page.locator('button[role="combobox"]').first();
+    const notebookSelector = editor.locator('button[role="combobox"]').first();
 
     // Check text content of the button
-    if (!(await notebookSelector.textContent())?.includes('数学')) {
+    if (!(await notebookSelector.textContent())?.includes(notebookName)) {
         await notebookSelector.click();
-        await page.getByRole('option', { name: '数学' }).click();
+        await page.getByRole('option', { name: notebookName }).click();
     }
 
     // 9. Save
     // Click "Save to Notebook" / "保存"
-    await page.getByRole('button', { name: /保存|Save/ }).click();
+    await editor.getByRole('button', { name: /保存|Save/ }).click();
 
     // 10. Verify Redirection and Content
     // Should redirect to /notebooks/[id]
     await page.waitForURL(/\/notebooks\/.+/, { timeout: 10000 });
 
     // Verify headers or content
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('数学');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(notebookName);
 
     // Verify the new item is present
     // Question text should be "试题：2 + 2 = ?"
@@ -156,8 +143,7 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
         await dialog.accept();
     });
 
-    // Locate the delete button specifically for the "数学" notebook
-    const notebookCard = page.locator('.group').filter({ hasText: '数学' }).first();
+    const notebookCard = page.locator('.group').filter({ hasText: notebookName }).first();
 
     // Hover to reveal button
     await notebookCard.hover();
@@ -166,6 +152,6 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
     await notebookCard.getByRole('button').last().click();
 
     // 14. Verify Notebook Deleted
-    await expect(page.getByText('数学', { exact: true })).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(notebookName, { exact: true })).not.toBeVisible({ timeout: 5000 });
 
 });

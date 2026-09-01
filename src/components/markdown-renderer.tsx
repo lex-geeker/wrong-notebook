@@ -49,8 +49,10 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
                     blockquote: ({ node, ...props }) => (
                         <blockquote className="border-l-4 border-primary pl-4 italic my-4 text-muted-foreground" {...props} />
                     ),
-                    code: ({ node, inline, className, children, ...props }: any) => {
-                        if (inline) {
+                    code: (componentProps) => {
+                        const { node, className, children, ...props } = componentProps;
+                        void node;
+                        if (!className) {
                             return <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground" {...props}>{children}</code>;
                         }
                         return (

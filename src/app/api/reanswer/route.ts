@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { badRequest, createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { parseOptionalImagePayload } from "@/lib/image-payload";
 
 const logger = createLogger('api:reanswer');
 
@@ -20,7 +21,9 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        const { questionText, language = 'zh', subject, imageBase64, gradeSemester } = body;
+        const { questionText, language = 'zh', subject, gradeSemester } = body;
+        const image = parseOptionalImagePayload(body.imageBase64, body.mimeType);
+        const imageBase64 = image?.dataUrl;
 
         logger.debug({
             questionLength: questionText?.length,
@@ -30,7 +33,7 @@ export async function POST(req: Request) {
             gradeSemester
         }, 'Reanswer request received');
 
-        if (!questionText || questionText.trim().length === 0) {
+        if (typeof questionText !== 'string' || questionText.trim().length === 0 || questionText.length > 50_000) {
             logger.warn('Missing question text');
             return badRequest("Missing question text");
         }

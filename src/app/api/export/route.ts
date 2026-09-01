@@ -26,43 +26,22 @@ export async function GET(req: Request) {
     const exportAll = searchParams.get('all') === 'true';
 
     // 只有管理员可以导出全部数据
-    if (exportAll && (session.user as any).role !== 'admin') {
+    if (exportAll && session.user.role !== 'admin') {
         return forbidden("Admin role required");
     }
 
     try {
         const userFilter = exportAll ? {} : { userId: user.id };
 
-        const subjects = await prisma.subject.findMany({
-            where: userFilter,
-        });
-
-        const customTags = await prisma.knowledgeTag.findMany({
-            where: {
-                ...userFilter,
-                isSystem: false,
-            },
-        });
-
-        const errorItems = await prisma.errorItem.findMany({
-            where: userFilter,
-            include: {
-                tags: true,
-            },
-        });
-
-        const reviewSchedules = await prisma.reviewSchedule.findMany({
-            where: exportAll
-                ? { errorItem: { userId: { not: undefined } } }
-                : { errorItem: { userId: user.id } },
-        });
-
-        const practiceRecords = await prisma.practiceRecord.findMany({
-            where: userFilter,
-        });
+        const [subjects, customTags, errorItems, practiceRecords] = await Promise.all([
+            prisma.subject.findMany({ where: userFilter }),
+            prisma.knowledgeTag.findMany({ where: { ...userFilter, isSystem: false } }),
+            prisma.errorItem.findMany({ where: userFilter, include: { tags: true } }),
+            prisma.practiceRecord.findMany({ where: userFilter }),
+        ]);
 
         const exportData = {
-            version: 1,
+            version: 2,
             exportedAt: new Date().toISOString(),
             scope: exportAll ? 'all' : 'user',
             user: {
@@ -76,7 +55,6 @@ export async function GET(req: Request) {
             subjects,
             customTags,
             errorItems,
-            reviewSchedules,
             practiceRecords,
         };
 
@@ -86,7 +64,6 @@ export async function GET(req: Request) {
             subjectsCount: subjects.length,
             customTagsCount: customTags.length,
             errorItemsCount: errorItems.length,
-            reviewSchedulesCount: reviewSchedules.length,
             practiceRecordsCount: practiceRecords.length,
         }, 'Data export completed');
 

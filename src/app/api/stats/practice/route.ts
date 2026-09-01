@@ -8,41 +8,27 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:stats:practice');
 
-export async function GET(req: Request) {
+export async function GET(_req: Request) {
     const session = await getServerSession(authOptions);
 
     if (!session || !session.user) {
         return unauthorized();
     }
 
-    // @ts-ignore
     const userId = session.user.id;
 
     try {
-        // 1. Subject Distribution
-        const subjectStats = await prisma.practiceRecord.groupBy({
-            by: ['subject'],
-            where: { userId },
-            _count: {
-                id: true
-            }
-        });
-
-        // 2. Monthly Activity (Last 6 months)
         const sixMonthsAgo = subMonths(new Date(), 5);
-        const activityStats = await prisma.practiceRecord.findMany({
-            where: {
-                userId,
-                createdAt: {
-                    gte: startOfMonth(sixMonthsAgo)
-                }
-            },
-            select: {
-                createdAt: true,
-                isCorrect: true,
-                difficulty: true
-            }
-        });
+        const [subjectStats, activityStats, difficultyStats, totalRecords, correctRecords] = await Promise.all([
+            prisma.practiceRecord.groupBy({ by: ['subject'], where: { userId }, _count: { id: true } }),
+            prisma.practiceRecord.findMany({
+                where: { userId, createdAt: { gte: startOfMonth(sixMonthsAgo) } },
+                select: { createdAt: true, isCorrect: true, difficulty: true },
+            }),
+            prisma.practiceRecord.groupBy({ by: ['difficulty'], where: { userId }, _count: { id: true } }),
+            prisma.practiceRecord.count({ where: { userId } }),
+            prisma.practiceRecord.count({ where: { userId, isCorrect: true } }),
+        ]);
 
         // Process activity stats into monthly counts
         const monthlyActivity: Record<string, { total: number, correct: number, [key: string]: number }> = {};
@@ -71,21 +57,6 @@ export async function GET(req: Request) {
             date,
             ...stats
         })).sort((a, b) => a.date.localeCompare(b.date));
-
-        // 3. Difficulty Distribution
-        const difficultyStats = await prisma.practiceRecord.groupBy({
-            by: ['difficulty'],
-            where: { userId },
-            _count: {
-                id: true
-            }
-        });
-
-        // 4. Overall Correctness
-        const totalRecords = await prisma.practiceRecord.count({ where: { userId } });
-        const correctRecords = await prisma.practiceRecord.count({
-            where: { userId, isCorrect: true }
-        });
 
         return NextResponse.json({
             subjectStats: subjectStats.map(s => ({ name: s.subject || 'Unknown', value: s._count.id })),

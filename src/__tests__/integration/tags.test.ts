@@ -11,9 +11,8 @@ const mocks = vi.hoisted(() => ({
     },
     mockPrismaKnowledgeTag: {
         findMany: vi.fn(),
-    },
-    mockPrismaUser: {
-        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        create: vi.fn(),
     },
     mockGetServerSession: vi.fn(),
 }));
@@ -23,7 +22,6 @@ vi.mock('@/lib/prisma', () => ({
     prisma: {
         errorItem: mocks.mockPrismaErrorItem,
         knowledgeTag: mocks.mockPrismaKnowledgeTag,
-        user: mocks.mockPrismaUser,
     },
 }));
 
@@ -40,20 +38,46 @@ vi.mock('@/lib/auth', () => ({
 // Import after mocks
 import { GET as GET_STATS } from '@/app/api/tags/stats/route';
 import { GET as GET_SUGGESTIONS } from '@/app/api/tags/suggestions/route';
+import { POST as CREATE_TAG } from '@/app/api/tags/route';
+import { NextRequest } from 'next/server';
 
 describe('/api/tags', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        // Default: no session
-        mocks.mockGetServerSession.mockResolvedValue(null);
+        mocks.mockGetServerSession.mockResolvedValue({ user: { id: 'user-1' } });
+    });
+
+    describe('POST /api/tags', () => {
+        it('拒绝把其他用户的标签设为父标签', async () => {
+            mocks.mockPrismaKnowledgeTag.findFirst.mockResolvedValue(null);
+
+            const response = await CREATE_TAG(new NextRequest('http://localhost/api/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: '自定义标签', subject: 'math', parentId: 'other-parent' }),
+            }));
+
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaKnowledgeTag.findFirst).toHaveBeenCalledWith({
+                where: {
+                    id: 'other-parent',
+                    subject: 'math',
+                    OR: [
+                        { isSystem: true, userId: null },
+                        { isSystem: false, userId: 'user-1' },
+                    ],
+                },
+            });
+            expect(mocks.mockPrismaKnowledgeTag.create).not.toHaveBeenCalled();
+        });
     });
 
     describe('GET /api/tags/stats (标签统计)', () => {
         it('应该返回标签使用频率统计', async () => {
             const errorItems = [
-                { knowledgePoints: '["一元一次方程", "移项"]' },
-                { knowledgePoints: '["一元一次方程", "函数"]' },
-                { knowledgePoints: '["函数", "图像"]' },
+                { tags: [{ name: '一元一次方程' }, { name: '移项' }] },
+                { tags: [{ name: '一元一次方程' }, { name: '函数' }] },
+                { tags: [{ name: '函数' }, { name: '图像' }] },
             ];
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue(errorItems);
 
@@ -75,10 +99,10 @@ describe('/api/tags', () => {
 
         it('应该正确统计每个标签的使用次数', async () => {
             const errorItems = [
-                { knowledgePoints: '["一元一次方程"]' },
-                { knowledgePoints: '["一元一次方程"]' },
-                { knowledgePoints: '["一元一次方程"]' },
-                { knowledgePoints: '["函数"]' },
+                { tags: [{ name: '一元一次方程' }] },
+                { tags: [{ name: '一元一次方程' }] },
+                { tags: [{ name: '一元一次方程' }] },
+                { tags: [{ name: '函数' }] },
             ];
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue(errorItems);
 
@@ -88,11 +112,11 @@ describe('/api/tags', () => {
 
             expect(response.status).toBe(200);
 
-            const equationStat = data.stats.find((s: any) => s.tag === '一元一次方程');
+            const equationStat = data.stats.find((s: { tag: string }) => s.tag === '一元一次方程');
             expect(equationStat).toBeDefined();
             expect(equationStat.count).toBe(3);
 
-            const functionStat = data.stats.find((s: any) => s.tag === '函数');
+            const functionStat = data.stats.find((s: { tag: string }) => s.tag === '函数');
             expect(functionStat).toBeDefined();
             expect(functionStat.count).toBe(1);
         });
@@ -110,10 +134,10 @@ describe('/api/tags', () => {
             expect(data.uniqueTags).toBe(0);
         });
 
-        it('应该处理无效的 JSON 知识点', async () => {
+        it('应该处理没有标签的错题', async () => {
             const errorItems = [
-                { knowledgePoints: 'invalid json{' },
-                { knowledgePoints: '["有效标签"]' },
+                { tags: [] },
+                { tags: [{ name: '有效标签' }] },
             ];
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue(errorItems);
 
@@ -122,16 +146,15 @@ describe('/api/tags', () => {
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            // 应该只统计有效的标签
             expect(data.stats.length).toBe(1);
             expect(data.stats[0].tag).toBe('有效标签');
         });
 
-        it('应该处理空的知识点字段', async () => {
+        it('应该处理多个空标签关系', async () => {
             const errorItems = [
-                { knowledgePoints: null },
-                { knowledgePoints: '' },
-                { knowledgePoints: '["有效标签"]' },
+                { tags: [] },
+                { tags: [] },
+                { tags: [{ name: '有效标签' }] },
             ];
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue(errorItems);
 
@@ -144,9 +167,9 @@ describe('/api/tags', () => {
             expect(data.uniqueTags).toBe(1);
         });
 
-        it('应该忽略非字符串的标签', async () => {
+        it('应该统计关系标签', async () => {
             const errorItems = [
-                { knowledgePoints: '[123, null, "有效标签", true]' },
+                { tags: [{ name: '有效标签' }] },
             ];
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue(errorItems);
 
@@ -244,9 +267,8 @@ describe('/api/tags', () => {
 
         it('应该返回系统标签和用户自定义标签', async () => {
             mocks.mockGetServerSession.mockResolvedValue({
-                user: { email: 'test@example.com' }
+                user: { id: 'user-1' }
             });
-            mocks.mockPrismaUser.findUnique.mockResolvedValue({ id: 'user-1' });
 
             const mockTags = [
                 createMockTag('系统标签', 'math', true),

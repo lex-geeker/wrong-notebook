@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, ImageIcon } from "lucide-react";
+import { ArrowLeft, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, ImageIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -13,7 +13,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { TagInput } from "@/components/tag-input";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiError } from "@/lib/api-client";
 import { UserProfile, Notebook } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { getMistakeStatusLabel, normalizeMistakeStatusForSave } from "@/lib/mistake-status";
@@ -33,7 +33,6 @@ interface ErrorItemDetail {
     wrongAnswerText?: string | null;
     mistakeAnalysis?: string | null;
     mistakeStatus?: string | null;
-    knowledgePoints: string; // 保留兼容旧数据
     tags: KnowledgeTag[]; // 新的标签关联
     masteryLevel: number;
     originalImageUrl: string;
@@ -120,9 +119,12 @@ export default function ErrorDetailPage() {
             } else {
                 setGeogebraError(result.description || "该题目不适合用 GeoGebra 演示");
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("GeoGebra analysis failed:", error);
-            const msg = error?.data?.message || error?.message || "";
+            const data = error instanceof ApiError ? error.data : null;
+            const msg = data && typeof data === "object" && "message" in data && typeof data.message === "string"
+                ? data.message
+                : error instanceof Error ? error.message : "";
             if (msg.includes("AI_AUTH_ERROR")) {
                 setGeogebraError("AI 认证失败，请检查设置");
             } else if (msg.includes("AI_CONNECTION")) {
@@ -135,21 +137,11 @@ export default function ErrorDetailPage() {
         }
     };
 
-    const handleSaveGeogebraCommands = async (commands: string) => {
-        if (!item) return;
-        await apiClient.put(`/api/error-items/${item.id}`, { geogebraCommands: commands });
-        setItem({ ...item, geogebraCommands: commands });
-    };
-
-    const toggleMastery = async () => {
-        if (!item) return;
-
-        const newLevel = item.masteryLevel > 0 ? 0 : 1;
-
+    const resetMastery = async () => {
+        if (!item || item.masteryLevel !== 2) return;
         try {
-            await apiClient.patch(`/api/error-items/${item.id}/mastery`, { masteryLevel: newLevel });
-            setItem({ ...item, masteryLevel: newLevel });
-            alert(newLevel > 0 ? (t.common?.messages?.markMastered || 'Marked as mastered') : (t.common?.messages?.unmarkMastered || 'Unmarked'));
+            await apiClient.patch(`/api/error-items/${item.id}/mastery`, { masteryLevel: 0 });
+            setItem({ ...item, masteryLevel: 0 });
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.updateFailed || 'Update failed');
@@ -188,20 +180,7 @@ export default function ErrorDetailPage() {
 
     const startEditingTags = () => {
         if (item) {
-            // 优先使用新的 tags 关联
-            if (item.tags && item.tags.length > 0) {
-                setTagsInput(item.tags.map(t => t.name));
-            } else if (item.knowledgePoints) {
-                // 回退到旧的 knowledgePoints 字段
-                try {
-                    const tags = JSON.parse(item.knowledgePoints);
-                    setTagsInput(tags);
-                } catch (e) {
-                    setTagsInput([]);
-                }
-            } else {
-                setTagsInput([]);
-            }
+            setTagsInput(item.tags.map(t => t.name));
             setIsEditingTags(true);
         }
     };
@@ -425,18 +404,7 @@ export default function ErrorDetailPage() {
     if (loading) return <div className="p-8 text-center">{t.common.loading}</div>;
     if (!item) return <div className="p-8 text-center">{t.detail.notFound || "Item not found"}</div>;
 
-    // 优先从 tags 关联获取，回退到 knowledgePoints
-    let tags: string[] = [];
-    if (item.tags && item.tags.length > 0) {
-        tags = item.tags.map(t => t.name);
-    } else if (item.knowledgePoints) {
-        try {
-            const parsed = JSON.parse(item.knowledgePoints);
-            tags = Array.isArray(parsed) ? parsed : [];
-        } catch (e) {
-            tags = [];
-        }
-    }
+    const tags = item.tags.map(t => t.name);
 
     return (
         <main className="min-h-screen bg-background">
@@ -458,24 +426,18 @@ export default function ErrorDetailPage() {
                                 {t.detail.practice}
                             </Button>
                         </Link>
-                        <Button
-                            size="sm"
-                            variant={item.masteryLevel > 0 ? "default" : "default"}
-                            className={item.masteryLevel > 0 ? "bg-green-600 hover:bg-green-700 text-white" : ""}
-                            onClick={toggleMastery}
+                        <Badge
+                            variant={item.masteryLevel === 2 ? "default" : item.masteryLevel === 1 ? "secondary" : "outline"}
+                            className={item.masteryLevel === 2 ? "bg-green-600" : item.masteryLevel === 1 ? "text-amber-700 dark:text-amber-300" : ""}
                         >
-                            {item.masteryLevel > 0 ? (
-                                <>
-                                    <CheckCircle className="mr-2 h-4 w-4" />
-                                    {t.detail.mastered}
-                                </>
-                            ) : (
-                                <>
-                                    <XCircle className="mr-2 h-4 w-4" />
-                                    {t.detail.markMastered}
-                                </>
-                            )}
-                        </Button>
+                            {item.masteryLevel === 2 ? t.detail.mastered : item.masteryLevel === 1 ? t.filter.reviewing : t.filter.review}
+                        </Badge>
+                        {item.masteryLevel === 2 && (
+                            <Button size="sm" variant="outline" onClick={resetMastery}>
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                {t.detail.restartReview}
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
                             size="sm"
@@ -575,7 +537,7 @@ export default function ErrorDetailPage() {
 
                 <div className="space-y-6">
                     {item.geogebraCommands ? (
-                        <GeogebraDemo commands={item.geogebraCommands} height={700} showToolBar={true} showAlgebraInput={false} showMenuBar={false} onRegenerate={handleAnalyzeGeogebra} onSaveCommands={handleSaveGeogebraCommands} />
+                        <GeogebraDemo commands={item.geogebraCommands} height={700} showToolBar={true} showAlgebraInput={false} showMenuBar={false} onRegenerate={handleAnalyzeGeogebra} />
                     ) : (
                         <div className="rounded-lg border border-dashed p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Box className="h-4 w-4" /><span>GeoGebra 动态演示</span></div><Button variant="outline" size="sm" onClick={() => handleAnalyzeGeogebra()} disabled={isAnalyzingGeogebra}>{isAnalyzingGeogebra ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 分析中...</> : <><Box className="mr-2 h-4 w-4" />生成演示</>}</Button></div>{geogebraError && <p className="text-xs text-muted-foreground mt-2">{geogebraError}</p>}<p className="text-xs text-muted-foreground mt-2">AI 将判断本题是否可以用 GeoGebra 进行动态演示，如适合则自动生成交互式图形</p></div>
                     )}

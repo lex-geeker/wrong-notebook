@@ -25,20 +25,13 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
     const inputRef = useRef<HTMLInputElement>(null);
     const suggestionsRef = useRef<HTMLDivElement>(null);
 
-    // 获取标签建议
     useEffect(() => {
-        if (input.trim()) {
-            fetchSuggestions(input);
-        } else {
-            setSuggestions([]);
-            setShowSuggestions(false);
-        }
-    }, [input, subject, gradeStage]);
-
-    const fetchSuggestions = async (query: string) => {
-        try {
+        if (!input.trim()) return;
+        let active = true;
+        const fetchSuggestions = async () => {
+          try {
             // 从服务器获取标签建议（现在从数据库查询）
-            const params = new URLSearchParams({ q: query });
+            const params = new URLSearchParams({ q: input });
             if (subject) {
                 params.append('subject', subject);
             }
@@ -53,13 +46,18 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
                 (tag) => !value.includes(tag)
             );
 
-            setSuggestions(filtered.slice(0, 20));
-            setShowSuggestions(filtered.length > 0);
-            setSelectedIndex(0);
-        } catch (error) {
+            if (active) {
+                setSuggestions(filtered.slice(0, 20));
+                setShowSuggestions(filtered.length > 0);
+                setSelectedIndex(0);
+            }
+          } catch (error) {
             console.error("Failed to fetch suggestions:", error);
-        }
-    };
+          }
+        };
+        void fetchSuggestions();
+        return () => { active = false; };
+    }, [input, subject, gradeStage, value]);
 
     const addTag = (tag: string) => {
         if (tag.trim() && !value.includes(tag.trim())) {

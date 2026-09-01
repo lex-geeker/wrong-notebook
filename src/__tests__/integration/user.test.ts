@@ -3,6 +3,7 @@
  * 测试用户信息获取和更新接口
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Session } from 'next-auth';
 
 // Use vi.hoisted to ensure mocks are initialized before module imports
 const mocks = vi.hoisted(() => ({
@@ -365,7 +366,7 @@ describe('/api/user', () => {
                     name: 'No Email User',
                 },
                 expires: '2025-12-31',
-            } as any);
+            } as unknown as Session);
 
             const response = await GET();
             const data = await response.json();

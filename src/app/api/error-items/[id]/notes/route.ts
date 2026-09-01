@@ -27,11 +27,18 @@ export async function PATCH(
         }
 
         const { userNotes } = await req.json();
+        if (typeof userNotes !== "string" || userNotes.length > 20_000) {
+            return NextResponse.json({ error: "Invalid notes" }, { status: 400 });
+        }
+
+        const ownedItem = await prisma.errorItem.findFirst({
+            where: { id, userId: user.id },
+            select: { id: true },
+        });
+        if (!ownedItem) return NextResponse.json({ error: "Error item not found" }, { status: 404 });
 
         const errorItem = await prisma.errorItem.update({
-            where: {
-                id: id,
-            },
+            where: { id: ownedItem.id, userId: user.id },
             data: {
                 userNotes: userNotes,
             },

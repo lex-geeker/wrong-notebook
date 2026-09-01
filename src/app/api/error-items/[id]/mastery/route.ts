@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { unauthorized, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { z } from "zod";
 
 const logger = createLogger('api:error-items:mastery');
 
@@ -26,26 +27,24 @@ export async function PATCH(
             return unauthorized("Authentication required");
         }
 
-        const { masteryLevel } = await req.json();
+        const parsed = z.object({ masteryLevel: z.number().int().min(0).max(2) }).safeParse(await req.json());
+        if (!parsed.success) {
+            return NextResponse.json({ error: "masteryLevel must be 0, 1, or 2" }, { status: 400 });
+        }
+        const { masteryLevel } = parsed.data;
 
         // Verify ownership before update
-        const existingItem = await prisma.errorItem.findUnique({
-            where: { id },
-            select: { userId: true },
+        const existingItem = await prisma.errorItem.findFirst({
+            where: { id, userId: user.id },
+            select: { id: true },
         });
 
         if (!existingItem) {
             return NextResponse.json({ message: "Item not found" }, { status: 404 });
         }
 
-        if (existingItem.userId !== user.id) {
-            return NextResponse.json({ message: "Not authorized to update this item" }, { status: 403 });
-        }
-
         const errorItem = await prisma.errorItem.update({
-            where: {
-                id,
-            },
+            where: { id, userId: user.id },
             data: {
                 masteryLevel,
             },

@@ -185,7 +185,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
             } else {
                 setGeogebraError(result.description || "该题目不适合用 GeoGebra 演示");
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("GeoGebra analysis failed:", error);
             setGeogebraError("分析失败，请稍后重试");
         } finally {

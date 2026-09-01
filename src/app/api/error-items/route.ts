@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { calculateGrade } from "@/lib/grade-calculator";
-import { unauthorized, internalError } from "@/lib/api-errors";
+import { badRequest, unauthorized, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
+import { parseOptionalImagePayload } from "@/lib/image-payload";
 
 const logger = createLogger('api:error-items');
 
@@ -15,8 +16,12 @@ export async function POST(req: Request) {
     logger.info('POST /api/error-items called');
 
     const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return unauthorized("Authentication required");
 
     try {
+        const user = await prisma.user.findUnique({ where: { email: session.user.email } });
+        if (!user) return unauthorized("No user found in DB");
+
         const body = await req.json();
         const {
             questionText,
@@ -32,6 +37,18 @@ export async function POST(req: Request) {
             paperLevel,
             geogebraCommands,
         } = body;
+
+        for (const value of [questionText, answerText, analysis, wrongAnswerText, mistakeAnalysis, geogebraCommands]) {
+            if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 50_000)) {
+                return badRequest('Invalid text field');
+            }
+        }
+        let validatedImageUrl = '';
+        try {
+            validatedImageUrl = parseOptionalImagePayload(originalImageUrl)?.dataUrl || '';
+        } catch (error) {
+            return badRequest(error instanceof Error ? error.message : 'Invalid image');
+        }
 
         // 记录请求参数（不记录完整图片数据）
         logger.debug({
@@ -52,21 +69,6 @@ export async function POST(req: Request) {
         }, 'Request parameters received');
 
         // 查找用户
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-            logger.debug({ userId: user?.id, email: session.user.email }, 'User lookup result');
-        } else {
-            logger.warn('No session email found');
-        }
-
-        if (!user) {
-            logger.warn({ sessionEmail: session?.user?.email }, 'User not found in DB');
-            return unauthorized("No user found in DB");
-        }
-
         // ========== 去重检查：2秒内同一用户提交相同题目视为重复 ==========
         const DEDUP_WINDOW_MS = 2000; // 2秒去重窗口
         const questionTextPrefix = questionText?.substring(0, 100) || ''; // 取前100字符比较
@@ -109,29 +111,38 @@ export async function POST(req: Request) {
         }
 
         // 处理知识点标签
-        const tagNames: string[] = Array.isArray(knowledgePoints) ? knowledgePoints : [];
+        const rawTagNames = knowledgePoints ?? [];
+        if (!Array.isArray(rawTagNames) || rawTagNames.length > 20 || rawTagNames.some(name => typeof name !== 'string' || name.length > 100)) {
+            return badRequest('Invalid knowledge points');
+        }
+        const tagNames: string[] = rawTagNames;
         const tagConnections: { id: string }[] = [];
 
         // 推断学科
-        const subject = await prisma.subject.findUnique({ where: { id: subjectId || '' } });
+        const subject = subjectId
+            ? await prisma.subject.findFirst({ where: { id: subjectId, userId: user.id } })
+            : null;
+        if (subjectId && !subject) return badRequest("Invalid subject");
         const subjectKey = inferSubjectFromName(subject?.name ?? null) || 'other';
         logger.debug({ subjectId, subjectName: subject?.name, subjectKey }, 'Subject inferred');
 
         // 处理每个标签
         for (const tagName of tagNames) {
             try {
+                const parentId = await findParentTagIdForGrade(finalGradeSemester, subjectKey);
                 let tag = await prisma.knowledgeTag.findFirst({
                     where: {
                         name: tagName,
+                        subject: subjectKey,
+                        parentId,
                         OR: [
-                            { isSystem: true },
-                            { userId: user.id },
+                            { isSystem: true, userId: null },
+                            { isSystem: false, userId: user.id },
                         ],
                     },
                 });
 
                 if (!tag) {
-                    const parentId = await findParentTagIdForGrade(finalGradeSemester, subjectKey);
                     logger.debug({ tagName, parentId, subjectKey }, 'Creating new custom tag');
 
                     tag = await prisma.knowledgeTag.create({
@@ -163,14 +174,13 @@ export async function POST(req: Request) {
                 data: {
                     userId: user.id,
                     subjectId: subjectId || undefined,
-                    originalImageUrl,
+                    originalImageUrl: validatedImageUrl,
                     questionText,
                     answerText,
                     analysis,
                     wrongAnswerText: wrongAnswerText || null,
                     mistakeAnalysis: mistakeAnalysis || null,
                     mistakeStatus: normalizeMistakeStatusForSave(mistakeStatus, wrongAnswerText),
-                    knowledgePoints: JSON.stringify(tagNames),
                     gradeSemester: finalGradeSemester,
                     paperLevel: paperLevel,
                     geogebraCommands: geogebraCommands || null,

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
+import { unauthorized, notFound, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { getAIService } from "@/lib/ai";
 
@@ -27,17 +27,13 @@ export async function POST(
             return unauthorized("Authentication required");
         }
 
-        const errorItem = await prisma.errorItem.findUnique({
-            where: { id },
+        const errorItem = await prisma.errorItem.findFirst({
+            where: { id, userId: user.id },
             include: { subject: true },
         });
 
         if (!errorItem) {
             return notFound("Item not found");
-        }
-
-        if (errorItem.userId !== user.id) {
-            return forbidden("Not authorized to access this item");
         }
 
         // Only analyze math-related subjects
@@ -82,7 +78,7 @@ export async function POST(
         // If suitable, save the commands to the database
         if (result.suitable && result.commands.length > 0) {
             await prisma.errorItem.update({
-                where: { id },
+                where: { id, userId: user.id },
                 data: {
                     geogebraCommands: JSON.stringify(result.commands),
                 },

@@ -10,13 +10,14 @@ const mocks = vi.hoisted(() => ({
         findUnique: vi.fn(),
     },
     mockPrismaSubject: {
-        findUnique: vi.fn(),
+        findFirst: vi.fn(),
     },
     mockAIService: {
         analyzeImage: vi.fn(),
     },
     mockSession: {
         user: {
+            id: 'user-1',
             email: 'user@example.com',
             name: 'Test User',
         },
@@ -81,7 +82,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     mimeType: 'image/png',
                     language: 'zh',
                 }),
@@ -109,7 +110,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...',
+                    imageBase64: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -146,7 +147,7 @@ describe('/api/analyze', () => {
                 educationStage: 'junior_high',
                 enrollmentYear: 2024,
             });
-            mocks.mockPrismaSubject.findUnique.mockResolvedValue({
+            mocks.mockPrismaSubject.findFirst.mockResolvedValue({
                 name: '物理',
             });
             mocks.mockAIService.analyzeImage.mockResolvedValue({
@@ -159,7 +160,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                     subjectId: 'subject-physics-id',
                 }),
@@ -169,6 +170,10 @@ describe('/api/analyze', () => {
             const response = await POST(request);
 
             expect(response.status).toBe(200);
+            expect(mocks.mockPrismaSubject.findFirst).toHaveBeenCalledWith({
+                where: { id: 'subject-physics-id', userId: 'user-1' },
+                select: { name: true },
+            });
         });
 
         it('应该支持英文语言', async () => {
@@ -182,7 +187,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'en',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -203,7 +208,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -224,7 +229,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -245,7 +250,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -266,7 +271,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -287,7 +292,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },
@@ -316,7 +321,7 @@ describe('/api/analyze', () => {
             const request = new Request('http://localhost/api/analyze', {
                 method: 'POST',
                 body: JSON.stringify({
-                    imageBase64: 'data:image/png;base64,test...',
+                    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
                     language: 'zh',
                 }),
                 headers: { 'Content-Type': 'application/json' },

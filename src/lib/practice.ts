@@ -20,8 +20,8 @@ export interface PracticeFilters {
 }
 
 export interface PracticeAnswerResult {
-    isCorrect: boolean;
-    matchType: "exact" | "choice" | "contains" | "mismatch";
+    isCorrect: boolean | null;
+    matchType: "exact" | "choice" | "self_assessment";
 }
 
 type PracticeSessionWithItems = Prisma.PracticeSessionGetPayload<{
@@ -36,13 +36,11 @@ export function judgePracticeAnswer(input: string, expected: string): PracticeAn
     const normalizedExpected = normalizeAnswer(expected);
 
     if (normalizedInput === normalizedExpected) return { isCorrect: true, matchType: "exact" };
-    if (/^[a-d]$/.test(normalizedInput) && normalizedExpected.startsWith(normalizedInput)) {
+    const choice = expected.normalize("NFKC").trim().match(/^(?:(?:答案|选项|选)\s*[:：]?\s*)?([a-d])(?:\s*$|[\s.．、,:：)）])/i)?.[1]?.toLowerCase();
+    if (/^[a-d]$/.test(normalizedInput) && choice === normalizedInput) {
         return { isCorrect: true, matchType: "choice" };
     }
-    if (normalizedInput.length > 1 && normalizedExpected.includes(normalizedInput)) {
-        return { isCorrect: true, matchType: "contains" };
-    }
-    return { isCorrect: false, matchType: "mismatch" };
+    return { isCorrect: null, matchType: "self_assessment" };
 }
 
 export function nextMasteryLevel(current: number, isCorrect: boolean) {
@@ -77,7 +75,7 @@ export function pickRandom<T>(items: T[], count: number): T[] {
     return shuffled.slice(0, count);
 }
 
-export function serializePracticeSession(session: PracticeSessionWithItems) {
+export function serializePracticeSession(session: PracticeSessionWithItems, includeAnswers = false) {
     const items = [...session.items]
         .sort((a, b) => a.position - b.position)
         .map((item) => ({
@@ -86,12 +84,17 @@ export function serializePracticeSession(session: PracticeSessionWithItems) {
             errorItemId: item.errorItemId,
             questionText: item.questionText,
             generationMode: item.generationMode,
+            ...(includeAnswers ? { expectedAnswer: item.answerText } : {}),
             ...(item.record ? {
                 answer: {
                     answerInput: item.record.answerInput || "",
                     expectedAnswer: item.answerText,
-                    isCorrect: item.record.isCorrect === true,
-                    matchType: judgePracticeAnswer(item.record.answerInput || "", item.answerText).matchType,
+                    isCorrect: item.record.isCorrect,
+                    matchType: item.record.answerInput === null
+                        ? "manual"
+                        : item.record.isCorrect === null
+                        ? "self_assessment"
+                        : judgePracticeAnswer(item.record.answerInput || "", item.answerText).matchType,
                 },
             } : {}),
         }));
@@ -103,7 +106,7 @@ export function serializePracticeSession(session: PracticeSessionWithItems) {
         startedAt: session.startedAt.toISOString(),
         endedAt: session.endedAt?.toISOString() || null,
         itemCount: items.length,
-        answeredCount: items.filter((item) => item.answer).length,
+        answeredCount: items.filter((item) => item.answer?.isCorrect !== null && item.answer?.isCorrect !== undefined).length,
         correctCount: items.filter((item) => item.answer?.isCorrect).length,
         items,
     };

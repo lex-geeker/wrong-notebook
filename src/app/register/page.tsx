@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiError } from "@/lib/api-client";
 import { RegisterRequest } from "@/types/api";
 
 export default function RegisterPage() {
@@ -54,7 +54,7 @@ export default function RegisterPage() {
         }
 
         try {
-            await apiClient.post<any, RegisterRequest>("/api/register", {
+            await apiClient.post<unknown, RegisterRequest>("/api/register", {
                 name,
                 email,
                 password,
@@ -64,8 +64,9 @@ export default function RegisterPage() {
 
             alert(t.auth?.register?.success || 'Registration successful! Please login');
             router.push("/login");
-        } catch (error: any) {
-            let errorMsg = error.data?.message;
+        } catch (error: unknown) {
+            const data = error instanceof ApiError ? error.data : null;
+            let errorMsg = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : undefined;
             if (errorMsg === 'User with this email already exists') {
                 errorMsg = t.auth?.register?.emailExists || errorMsg;
             } else {

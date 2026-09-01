@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { AIService, ParsedQuestion, DifficultyLevel, AIConfig, ReanswerQuestionResult, GeogebraAnalysisResult } from "./types";
 import { generateAnalyzePrompt, generateSimilarQuestionPrompt, generateGeogebraPrompt } from './prompts';
 import { getAppConfig } from '../config';
-import { safeParseParsedQuestion } from './schema';
+import { extractXmlTag, parseAIResponse } from './response-parser';
 import { getMathTagsFromDB, getTagsFromDB } from './tag-service';
 import { createLogger } from '../logger';
 import { normalizeMistakeStatusForSave } from '../mistake-status';
@@ -13,6 +13,15 @@ type OpenAIUserContent = string | Array<
     { type: "text"; text: string } |
     { type: "image_url"; image_url: { url: string } }
 >;
+
+type LongCatPart = { type: string; image_url?: { url: string }; [key: string]: unknown };
+type LongCatMessage = { role: string; content: string | LongCatPart[] };
+type CompletionLike = { choices: Array<{ message?: { content?: string | null } }> };
+
+function isCompletionLike(value: unknown): value is CompletionLike {
+    if (!value || typeof value !== 'object' || !('choices' in value)) return false;
+    return Array.isArray(value.choices) && value.choices.length > 0;
+}
 
 export class OpenAIProvider implements AIService {
     private openai: OpenAI;
@@ -50,14 +59,14 @@ export class OpenAIProvider implements AIService {
         }, 'AI Provider initialized');
     }
 
-    private adaptMessagesForLongCat(messages: Array<{ role: string; content: any }>): Array<{ role: string; content: any }> {
+    private adaptMessagesForLongCat(messages: LongCatMessage[]): LongCatMessage[] {
         return messages.map(msg => {
             if (typeof msg.content === 'string') {
                 return { ...msg, content: [{ type: 'text', text: msg.content }] };
             }
             if (Array.isArray(msg.content)) {
-                const adapted = msg.content.map((part: any) => {
-                    if (part.type === 'image_url') {
+                const adapted = msg.content.map((part) => {
+                    if (part.type === 'image_url' && part.image_url) {
                         return {
                             type: 'input_image',
                             input_image: { data: [part.image_url.url], type: 'url' }
@@ -72,93 +81,11 @@ export class OpenAIProvider implements AIService {
     }
 
     private extractTag(text: string, tagName: string): string | null {
-        const startTag = `<${tagName}>`;
-        const endTag = `</${tagName}>`;
-        const startIndex = text.indexOf(startTag);
-
-        // 如果找不到开始标签，返回 null
-        if (startIndex === -1) {
-            return null;
-        }
-
-        const contentStartIndex = startIndex + startTag.length;
-        const endIndex = text.lastIndexOf(endTag);
-
-        // 特殊处理：如果闭合标签丢失（通常主要发生在最后的 analysis 标签被截断时）
-        // 我们尝试读取到字符串末尾
-        if (endIndex === -1 && tagName === 'analysis') {
-            logger.warn({ tagName }, 'Tag was verified unclosed, treating as truncated and reading to end');
-            return text.substring(contentStartIndex).trim();
-        }
-
-        if (endIndex === -1 || contentStartIndex >= endIndex) {
-            return null;
-        }
-
-        return text.substring(contentStartIndex, endIndex).trim();
+        return extractXmlTag(text, tagName);
     }
 
     private parseResponse(text: string): ParsedQuestion {
-        logger.debug({ textLength: text.length }, 'Parsing AI response');
-
-        const questionText = this.extractTag(text, "question_text");
-        const answerText = this.extractTag(text, "answer_text");
-        const analysis = this.extractTag(text, "analysis");
-        const subjectRaw = this.extractTag(text, "subject");
-        const knowledgePointsRaw = this.extractTag(text, "knowledge_points");
-        const requiresImageRaw = this.extractTag(text, "requires_image");
-        const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || "";
-        const mistakeAnalysis = this.extractTag(text, "mistake_analysis") || "";
-        const mistakeStatusRaw = this.extractTag(text, "mistake_status");
-
-        // Basic Validation
-        if (!questionText || !answerText || !analysis) {
-            logger.error({ rawTextSample: text.substring(0, 500) }, 'Missing critical XML tags');
-            throw new Error("Invalid AI response: Missing critical XML tags (<question_text>, <answer_text>, or <analysis>)");
-        }
-
-        // Process Subject
-        let subject: ParsedQuestion['subject'] = '其他';
-        const validSubjects: ParsedQuestion['subject'][] = ["数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"];
-        if (subjectRaw && (validSubjects as string[]).includes(subjectRaw)) {
-            subject = subjectRaw as ParsedQuestion['subject'];
-        }
-
-        // Process Knowledge Points
-        let knowledgePoints: string[] = [];
-        if (knowledgePointsRaw) {
-            // Split by comma or newline, trim whitespaces
-            knowledgePoints = knowledgePointsRaw.split(/[,，\n]/).map(k => k.trim()).filter(k => k.length > 0);
-        }
-
-        // Process requiresImage (default to false if not present or unrecognized)
-        const requiresImage = requiresImageRaw?.toLowerCase().trim() === 'true';
-        const mistakeStatus = normalizeMistakeStatusForSave(mistakeStatusRaw, wrongAnswerText);
-
-        // Construct Result
-        const result: ParsedQuestion = {
-            questionText,
-            answerText,
-            analysis,
-            wrongAnswerText,
-            mistakeAnalysis,
-            mistakeStatus,
-            subject,
-            knowledgePoints,
-            requiresImage
-        };
-
-        // Final Schema Validation (just to be safe, though likely compliant by now)
-        const validation = safeParseParsedQuestion(result);
-        if (validation.success) {
-            logger.debug('Validated successfully via XML tags');
-            return validation.data;
-        } else {
-            logger.warn({ validationError: validation.error.format() }, 'Schema validation warning');
-            // We still return it as we trust our extraction more than the schema at this point (or we can throw)
-            // Let's return the extracted data to be permissive
-            return result;
-        }
+        return parseAIResponse(text);
     }
 
     async analyzeImage(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null): Promise<ParsedQuestion> {
@@ -218,7 +145,7 @@ export class OpenAIProvider implements AIService {
 
             logger.box('📤 API Request (发送给 AI 的原始请求)', JSON.stringify(requestParamsForLog, null, 2));
 
-            let response: any;
+            let response: unknown;
 
             if (this.isLongCat) {
                 // LongCat 使用不同的多模态格式，绕过 SDK 直接请求
@@ -285,7 +212,7 @@ export class OpenAIProvider implements AIService {
             logger.box('📦 Full API Response', JSON.stringify(response, null, 2));
 
             // 检查响应是否有效
-            if (!response || !response.choices || response.choices.length === 0) {
+            if (!isCompletionLike(response)) {
                 logger.error({ response: JSON.stringify(response) }, 'Invalid API response - no choices array');
                 throw new Error("AI_RESPONSE_ERROR: API returned empty or invalid response");
             }

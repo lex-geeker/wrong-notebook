@@ -2,7 +2,7 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
@@ -22,35 +22,35 @@ model User {
   educationStage String? // primary, junior_high, senior_high, university
   enrollmentYear Int?
 
-  role      String   @default("user") // "admin" or "user"
-  isActive  Boolean  @default(true)   // 用户是否启用
+  role     String  @default("user") // "admin" or "user"
+  isActive Boolean @default(true) // 用户是否启用
 
-  errorItems ErrorItem[]
-  subjects   Subject[]
-  practiceRecords PracticeRecord[]
+  errorItems       ErrorItem[]
+  subjects         Subject[]
+  practiceRecords  PracticeRecord[]
   practiceSessions PracticeSession[]
-  customTags KnowledgeTag[] // User's custom tags
+  customTags       KnowledgeTag[] // User's custom tags
 }
 
 // 统一知识点标签表 (支持无限层级)
 model KnowledgeTag {
-  id        String   @id @default(cuid())
-  name      String   // 标签名，如 "勾股定理"
-  subject   String   // 学科，如 "math", "english"
+  id      String @id @default(cuid())
+  name    String // 标签名，如 "勾股定理"
+  subject String // 学科，如 "math", "english"
 
   // 层级控制 (邻接表模式)
-  parentId  String?
-  parent    KnowledgeTag?  @relation("TagHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children  KnowledgeTag[] @relation("TagHierarchy")
+  parentId String?
+  parent   KnowledgeTag?  @relation("TagHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children KnowledgeTag[] @relation("TagHierarchy")
 
   // 排序与编码
-  order     Int      @default(0) // 用于保持教材顺序
-  code      String?              // 如 "1.2.1"
+  order Int     @default(0) // 用于保持教材顺序
+  code  String? // 如 "1.2.1"
 
   // 区分系统预设 vs 用户自定义
-  isSystem  Boolean  @default(false)
-  userId    String?  // 如果是用户自定义标签，绑定 userId
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isSystem Boolean @default(false)
+  userId   String? // 如果是用户自定义标签，绑定 userId
+  user     User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // 与错题的多对多关系
   errorItems ErrorItem[]
@@ -59,7 +59,6 @@ model KnowledgeTag {
   updatedAt DateTime @updatedAt
 
   // 联合索引：确保同一用户（或系统）下同一父节点下的标签名不重复
-  @@unique([subject, name, userId, parentId])
   // 索引：加速父子查询
   @@index([parentId])
   @@index([subject])
@@ -80,15 +79,15 @@ model Subject {
 }
 
 model ErrorItem {
-  id             String   @id @default(cuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subjectId      String?
-  subject        Subject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectId String?
+  subject   Subject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
   originalImageUrl String
   ocrText          String?
-  
+
   // AI Analysis
   questionText     String? // Parsed question
   answerText       String? // AI provided answer
@@ -96,68 +95,58 @@ model ErrorItem {
   wrongAnswerText  String? // Student's wrong answer/work if visible
   mistakeAnalysis  String? // Analysis of why the wrong answer happened
   mistakeStatus    String? // not_attempted, wrong_attempt, unknown
-  knowledgePoints  String? // [DEPRECATED] JSON string - kept for migration only
   geogebraCommands String? // GeoGebra commands for interactive demo (JSON or newline-separated)
 
   // New: many-to-many relation with KnowledgeTag
-  tags             KnowledgeTag[]
-  
+  tags KnowledgeTag[]
+
   // User Metadata
-  source           String? // e.g. "Midterm Exam"
-  errorType        String? // e.g. "Calculation", "Concept"
-  userNotes        String?
-  
-  masteryLevel     Int     @default(0) // 0: New, 1: Reviewing, 2: Mastered
-  gradeSemester    String? // e.g. "Junior High Grade 2, 1st Semester"
-  paperLevel       String? // e.g. "A", "B", "Other"
-  
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  source    String? // e.g. "Midterm Exam"
+  errorType String? // e.g. "Calculation", "Concept"
+  userNotes String?
 
-  reviewSchedules ReviewSchedule[]
+  masteryLevel  Int     @default(0) // 0: New, 1: Reviewing, 2: Mastered
+  gradeSemester String? // e.g. "Junior High Grade 2, 1st Semester"
+  paperLevel    String? // e.g. "A", "B", "Other"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   practiceSessionItems PracticeSessionItem[]
-  practiceRecords PracticeRecord[]
-}
+  practiceRecords      PracticeRecord[]
 
-model ReviewSchedule {
-  id          String    @id @default(cuid())
-  errorItemId String
-  errorItem   ErrorItem @relation(fields: [errorItemId], references: [id], onDelete: Cascade)
-  
-  scheduledFor DateTime
-  completedAt  DateTime?
-  isCorrect    Boolean? // Result of the review
-  
-  createdAt    DateTime @default(now())
+  @@index([userId, subjectId, createdAt])
+  @@index([userId, masteryLevel])
 }
 
 model PracticeRecord {
-  id            String   @id @default(cuid())
+  id            String               @id @default(cuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessionItemId String?  @unique
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionItemId String?              @unique
   sessionItem   PracticeSessionItem? @relation(fields: [sessionItemId], references: [id], onDelete: Cascade)
   errorItemId   String?
-  errorItem     ErrorItem? @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
-  
-  subject   String?  // e.g. "Math", "Physics"
-  difficulty String? // "easy", "medium", "hard", "harder"
-  isCorrect Boolean?
+  errorItem     ErrorItem?           @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
+
+  subject     String? // e.g. "Math", "Physics"
+  difficulty  String? // "easy", "medium", "hard", "harder"
+  isCorrect   Boolean?
   answerInput String?
-  
+
   createdAt DateTime @default(now())
 
   @@index([errorItemId])
+  @@index([userId, createdAt])
 }
 
 model PracticeSession {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   mode           String
   questionSource String
-  language       String   @default("zh")
-  startedAt      DateTime @default(now())
+  language       String    @default("zh")
+  startedAt      DateTime  @default(now())
   endedAt        DateTime?
 
   items PracticeSessionItem[]
@@ -166,11 +155,11 @@ model PracticeSession {
 }
 
 model PracticeSessionItem {
-  id                 String   @id @default(cuid())
+  id                 String          @id @default(cuid())
   sessionId          String
   session            PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   errorItemId        String?
-  errorItem          ErrorItem? @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
+  errorItem          ErrorItem?      @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
   position           Int
   subjectName        String?
   gradeSemester      String?
@@ -179,7 +168,7 @@ model PracticeSessionItem {
   sourceAnswerText   String
   questionText       String
   answerText         String
-  generationMode     String   @default("original")
+  generationMode     String          @default("original")
 
   record PracticeRecord?
 

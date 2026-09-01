@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { createLogger } from "@/lib/logger";
+import type { Prisma } from "@prisma/client";
+import { unauthorized } from "@/lib/api-errors";
 
 const logger = createLogger('api:tags:suggestions');
 
@@ -19,28 +21,21 @@ const logger = createLogger('api:tags:suggestions');
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
+        if (!session?.user?.id) return unauthorized();
         const { searchParams } = new URL(req.url);
         const query = searchParams.get("q")?.toLowerCase() || "";
         const subject = searchParams.get("subject") || undefined;
         const stage = searchParams.get("stage") || undefined;
 
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-                select: { id: true }
-            });
-        }
-
         // 如果没有 session, 尝试默认用户? 还是只返回系统标签? 
         // 按照现有逻辑，很多地方都有 fallback 到默认用户的逻辑，这里也保持一致比较好，
         // 或者只返回系统标签。稳妥起见，如果已登录则返回用户标签。
 
-        const whereCondition: any = {
+        const whereCondition: Prisma.KnowledgeTagWhereInput = {
             ...(subject ? { subject } : {}),
             OR: [
-                { isSystem: true },
-                ...(user ? [{ userId: user.id }] : [])
+                { isSystem: true, userId: null },
+                { isSystem: false, userId: session.user.id },
             ]
         };
 

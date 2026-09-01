@@ -10,9 +10,9 @@ import { compare } from "bcryptjs";
 const logger = createLogger('api:openclaw:batch-upload');
 
 const MAX_IMAGES = 20;
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'];
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png'];
+const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 
 interface ImageData {
     base64: string;
@@ -34,7 +34,7 @@ interface OpenclawResponse {
     error?: string;
 }
 
-function validateImage(base64: string, filename: string): { valid: boolean; error?: string } {
+function validateImage(base64: string, mimeType: string, filename: string): { valid: boolean; error?: string } {
     if (!base64 || base64.length === 0) {
         return { valid: false, error: '图片数据为空' };
     }
@@ -42,6 +42,13 @@ function validateImage(base64: string, filename: string): { valid: boolean; erro
     const extension = filename.toLowerCase().substring(filename.lastIndexOf('.'));
     if (!ALLOWED_EXTENSIONS.includes(extension)) {
         return { valid: false, error: `不支持的图片格式: ${extension}，仅支持 JPG、PNG` };
+    }
+
+    if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+        return { valid: false, error: 'Unsupported image MIME type' };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+        return { valid: false, error: 'Invalid Base64 image data' };
     }
 
     const estimatedSize = (base64.length * 3) / 4;
@@ -86,10 +93,10 @@ async function callOpenclawAgent(imageBase64: string, mimeType: string, timeout:
 
         const data = await response.json() as OpenclawResponse;
         return data;
-    } catch (error: any) {
+    } catch (error: unknown) {
         clearTimeout(timeoutId);
-        
-        if (error.name === 'AbortError') {
+
+        if (error instanceof Error && error.name === 'AbortError') {
             logger.error('Openclaw agent timeout');
             return {
                 success: false,
@@ -97,10 +104,10 @@ async function callOpenclawAgent(imageBase64: string, mimeType: string, timeout:
             };
         }
         
-        logger.error({ error: error?.message || String(error) }, 'Openclaw agent request failed');
+        logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Openclaw agent request failed');
         return {
             success: false,
-            error: `识别服务请求失败: ${error?.message || String(error)}`,
+            error: `识别服务请求失败: ${error instanceof Error ? error.message : String(error)}`,
         };
     }
 }
@@ -117,7 +124,8 @@ async function createErrorItem(
     const tagNames: string[] = Array.isArray(knowledgePoints) ? knowledgePoints : [];
     const tagConnections: { id: string }[] = [];
 
-    const subject = subjectId ? await prisma.subject.findUnique({ where: { id: subjectId } }) : null;
+    const subject = subjectId ? await prisma.subject.findFirst({ where: { id: subjectId, userId } }) : null;
+    if (subjectId && !subject) throw new Error('Invalid subject');
     const subjectKey = subject ? inferSubjectFromName(subject.name) : null;
 
     const user = await prisma.user.findUnique({
@@ -132,21 +140,22 @@ async function createErrorItem(
 
     for (const tagName of tagNames) {
         try {
+            const parentId = finalGradeSemester && subjectKey
+                ? await findParentTagIdForGrade(finalGradeSemester, subjectKey)
+                : null;
             let tag = await prisma.knowledgeTag.findFirst({
                 where: {
                     name: tagName,
+                    subject: subjectKey || 'other',
+                    parentId,
                     OR: [
-                        { isSystem: true },
-                        { userId: userId },
+                        { isSystem: true, userId: null },
+                        { isSystem: false, userId },
                     ],
                 },
             });
 
             if (!tag) {
-                const parentId = finalGradeSemester && subjectKey 
-                    ? await findParentTagIdForGrade(finalGradeSemester, subjectKey)
-                    : null;
-
                 tag = await prisma.knowledgeTag.create({
                     data: {
                         name: tagName,
@@ -173,7 +182,6 @@ async function createErrorItem(
             questionText: questionText || null,
             answerText: answerText || null,
             analysis: analysis || null,
-            knowledgePoints: JSON.stringify(tagNames),
             gradeSemester: finalGradeSemester,
             paperLevel: null,
             errorType: errorType || null,
@@ -268,6 +276,10 @@ export async function POST(req: Request) {
                 );
             }
 
+            if (!user.isActive) {
+                return createErrorResponse('Account is disabled', 403, ErrorCode.FORBIDDEN);
+            }
+
             // 验证密码（使用 bcrypt 比对）
             const isPasswordValid = await compare(password, user.password);
             if (!isPasswordValid) {
@@ -326,6 +338,10 @@ export async function POST(req: Request) {
             );
         }
 
+        if (!dbUser.isActive) {
+            return createErrorResponse('Account is disabled', 403, ErrorCode.FORBIDDEN);
+        }
+
         const timeout = parseInt(process.env.OPENCLAW_TIMEOUT || '30000', 10);
         const singleImageTimeout = Math.min(3000, timeout / images.length);
         const results: Array<{
@@ -339,7 +355,7 @@ export async function POST(req: Request) {
             const imageData = images[i] as ImageData;
             const { base64, mimeType, filename } = imageData;
 
-            const validation = validateImage(base64, filename);
+            const validation = validateImage(base64, mimeType, filename);
             if (!validation.valid) {
                 logger.warn({ index: i, filename, error: validation.error }, 'Image validation failed');
                 results.push({
@@ -378,12 +394,13 @@ export async function POST(req: Request) {
                 });
 
                 logger.info({ index: i, errorItemId: errorItem.id }, 'Error item created successfully');
-            } catch (dbError: any) {
-                logger.error({ index: i, error: dbError?.message || String(dbError) }, 'Failed to create error item');
+            } catch (dbError: unknown) {
+                const message = dbError instanceof Error ? dbError.message : String(dbError);
+                logger.error({ index: i, error: message }, 'Failed to create error item');
                 results.push({
                     success: false,
                     index: i,
-                    error: `数据库写入失败: ${dbError?.message || String(dbError)}`,
+                    error: `数据库写入失败: ${message}`,
                 });
             }
         }
@@ -406,13 +423,14 @@ export async function POST(req: Request) {
             failCount,
             results,
         }, { status: statusCode });
-    } catch (error: any) {
-        logger.error({ error: error?.message || String(error), stack: error?.stack }, 'Batch upload error');
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error({ error: message, stack: error instanceof Error ? error.stack : undefined }, 'Batch upload error');
         return createErrorResponse(
-            error?.message || '批量上传失败',
+            message || '批量上传失败',
             500,
             ErrorCode.INTERNAL_ERROR,
-            error?.message || String(error)
+            message
         );
     }
 }

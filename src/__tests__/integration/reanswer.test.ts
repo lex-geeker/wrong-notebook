@@ -104,7 +104,7 @@ describe('/api/reanswer', () => {
             };
             mocks.mockAIService.reanswerQuestion.mockResolvedValue(aiResult);
 
-            const imageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCA...';
+            const imageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
 
             const request = new Request('http://localhost/api/reanswer', {
                 method: 'POST',

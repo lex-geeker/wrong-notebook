@@ -3,6 +3,7 @@
  * 测试应用配置获取和更新接口
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { AppConfig } from '@/types/api';
 
 // Use vi.hoisted to ensure mocks are initialized before module imports
 const mocks = vi.hoisted(() => ({
@@ -28,11 +29,13 @@ const mocks = vi.hoisted(() => ({
             analyze: '',
             similar: '',
         },
+        timeouts: { analyze: 90_000 },
     })),
-    mockUpdateAppConfig: vi.fn((config: any) => ({
+    mockUpdateAppConfig: vi.fn((config: AppConfig) => ({
         ...config,
         aiProvider: config.aiProvider || 'gemini',
     })),
+    mockGetServerSession: vi.fn(),
 }));
 
 // Mock config module
@@ -41,12 +44,23 @@ vi.mock('@/lib/config', () => ({
     updateAppConfig: mocks.mockUpdateAppConfig,
 }));
 
+vi.mock('next-auth', () => ({
+    getServerSession: mocks.mockGetServerSession,
+}));
+
+vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+
 // Import after mocks
 import { GET, POST } from '@/app/api/settings/route';
+import { GET as GET_CLIENT_CONFIG } from '@/app/api/client-config/route';
 
 describe('/api/settings', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.mockGetServerSession.mockResolvedValue({
+            user: { id: 'admin-1', email: 'admin@example.com', role: 'admin' },
+            expires: '2099-01-01',
+        });
     });
 
     describe('GET /api/settings', () => {
@@ -65,8 +79,8 @@ describe('/api/settings', () => {
             const response = await GET();
             const data = await response.json();
 
-            expect(data.openai.instances[0].apiKey).toBe('sk-test-key');
-            expect(data.gemini.apiKey).toBe('AIza-test-key');
+            expect(data.openai.instances[0].apiKey).toBe('********');
+            expect(data.gemini.apiKey).toBe('********');
             expect(data.gemini.model).toBe('gemini-2.5-flash');
         });
 
@@ -75,6 +89,15 @@ describe('/api/settings', () => {
             const data = await response.json();
 
             expect(data.allowRegistration).toBe(true);
+        });
+
+        it('应该拒绝普通用户读取系统配置', async () => {
+            mocks.mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'user' } });
+
+            const response = await GET();
+
+            expect(response.status).toBe(403);
+            expect(mocks.mockGetAppConfig).not.toHaveBeenCalled();
         });
     });
 
@@ -245,5 +268,26 @@ describe('/api/settings', () => {
             expect(response.status).toBe(500);
             expect(data.message).toBe('Failed to update settings');
         });
+
+        it('应该拒绝普通用户修改系统配置', async () => {
+            mocks.mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'user' } });
+            const request = new Request('http://localhost/api/settings', {
+                method: 'POST',
+                body: JSON.stringify({ aiProvider: 'openai' }),
+            });
+
+            const response = await POST(request);
+
+            expect(response.status).toBe(403);
+            expect(mocks.mockUpdateAppConfig).not.toHaveBeenCalled();
+        });
+    });
+
+    it('普通用户只能读取前端所需的分析超时', async () => {
+        mocks.mockGetServerSession.mockResolvedValue({ user: { id: 'user-1', role: 'user' } });
+
+        const response = await GET_CLIENT_CONFIG();
+
+        expect(await response.json()).toEqual({ timeouts: { analyze: 90_000 } });
     });
 });
