@@ -252,7 +252,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
     };
 
     return (
-        <div className="space-y-6">
+        <div className={`space-y-6 ${isSelectMode ? "pb-40 sm:pb-24" : ""}`}>
             <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative w-full sm:flex-1">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -486,7 +486,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                         <span className="min-w-28 flex-1 text-sm text-muted-foreground">
                             {(t.notebook?.selectedCount || "{count} selected").replace("{count}", selectedIds.size.toString())}
                         </span>
-                        <div className="flex flex-wrap justify-end gap-2">
+                        <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
                             <Button
                                 variant="outline"
                                 size="sm"
