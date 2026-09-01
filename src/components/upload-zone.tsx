@@ -30,11 +30,6 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
     // 确保只在客户端渲染屏幕截图功能
     useEffect(() => {
         setIsClient(true);
-
-        // 请求通知权限
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
     }, []);
 
     const onDrop = useCallback(

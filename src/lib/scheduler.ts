@@ -1,11 +1,11 @@
 import { addDays } from "date-fns";
 
 // Ebbinghaus intervals in days: 1, 2, 4, 7, 15, 30
-const REVIEW_INTERVALS = [1, 2, 4, 7, 15, 30];
+export const REVIEW_INTERVALS = [1, 2, 4, 7, 15, 30] as const;
 
-export function calculateNextReviewDate(currentStage: number): Date {
+export function calculateNextReviewDate(currentStage: number, from = new Date()): Date {
     const interval = REVIEW_INTERVALS[currentStage] || 30; // Default to 30 if stage exceeds
-    return addDays(new Date(), interval);
+    return addDays(from, interval);
 }
 
 export function getReviewStageDescription(stage: number): string {

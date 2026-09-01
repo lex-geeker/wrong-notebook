@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
         count: vi.fn(),
         deleteMany: vi.fn(),
     },
+    mockPrismaPracticeSession: {
+        deleteMany: vi.fn(),
+    },
     mockPrismaErrorItem: {
         deleteMany: vi.fn(),
     },
@@ -29,6 +32,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
     prisma: {
         practiceRecord: mocks.mockPrismaPracticeRecord,
+        practiceSession: mocks.mockPrismaPracticeSession,
         errorItem: mocks.mockPrismaErrorItem,
     },
 }));
@@ -192,6 +196,7 @@ describe('/api/stats', () => {
             expect(response.status).toBe(200);
             expect(data.message).toBe('Practice history cleared successfully');
             expect(data.count).toBe(50);
+            expect(mocks.mockPrismaPracticeSession.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-123' } });
         });
 
         it('应该返回清除的记录数量', async () => {

@@ -28,24 +28,21 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/constants/pagination";
 import { getMistakeStatusLabel } from "@/lib/mistake-status";
 
 interface ErrorListProps {
-    subjectId?: string;
-    subjectName?: string;
+    subjectId: string;
 }
 
 type KnowledgeFilterChange = {
     gradeSemester?: string;
-    chapter?: string;
     tag?: string | null;
 };
 
-export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
+export function ErrorList({ subjectId }: ErrorListProps) {
     const [items, setItems] = useState<ErrorItem[]>([]);
     const [, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [masteryFilter, setMasteryFilter] = useState<"all" | "mastered" | "unmastered">("all");
     const [timeFilter, setTimeFilter] = useState<"all" | "week" | "month">("all");
     const [gradeFilter, setGradeFilter] = useState("");
-    const [chapterFilter, setChapterFilter] = useState("");
     const [paperLevelFilter, setPaperLevelFilter] = useState<"all" | "a" | "b" | "other">("all");
     const [selectedTag, setSelectedTag] = useState<string | null>(null);
     const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
@@ -75,7 +72,6 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             params.append("tag", selectedTag);
         }
         if (gradeFilter) params.append("gradeSemester", gradeFilter);
-        if (chapterFilter) params.append("chapter", chapterFilter); // 章节筛选
         if (paperLevelFilter !== "all") params.append("paperLevel", paperLevelFilter);
 
         router.push(`/print-preview?${params.toString()}`);
@@ -85,28 +81,12 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
         setSelectedTag(selectedTag === tag ? null : tag);
     };
 
-    const handleFilterChange = ({ gradeSemester, chapter, tag }: KnowledgeFilterChange) => {
-        if (gradeSemester !== undefined) setGradeFilter(gradeSemester);
-        if (chapter !== undefined) setChapterFilter(chapter);
-        // 注意：tag 可能是 undefined（表示清除），需要用 'tag' in obj 来判断是否传入了该参数
-        // 但由于我们的结构是直接解构，这里改用 null 作为清除标识
-        // 实际上 KnowledgeFilter 传入的是 { tag: undefined }，所以 tag 参数确实会被设置
-        // 问题在于 !== undefined 不能区分"未传入"和"传入undefined"
-        // 正确的做法是检查参数对象中是否有该 key
-        setSelectedTag(tag === undefined ? null : tag);
-
-        // Clear dependent filters and reset page
-        if (!gradeSemester) {
-            setGradeFilter("");
-            setChapterFilter("");
-            setSelectedTag(null);
-        } else if (!chapter) {
-            setChapterFilter("");
-        }
-        setPage(1); // 筛选变化时重置页码
+    const handleFilterChange = ({ gradeSemester, tag }: KnowledgeFilterChange) => {
+        setGradeFilter(gradeSemester || "");
+        setSelectedTag(tag || null);
+        setPage(1);
     };
 
-    // 使用服务端 items 直接渲染，章节过滤已在 KnowledgeFilter 中通过 tag 实现
     const filteredItems = items;
 
     const toggleTagsExpanded = (itemId: string, e: React.MouseEvent) => {
@@ -168,7 +148,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     };
 
     // 追踪筛选条件是否变化（用于判断是否需要重置页码）
-    const prevFiltersRef = useRef({ search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter });
+    const prevFiltersRef = useRef({ search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, paperLevelFilter });
 
     useEffect(() => {
         const prevFilters = prevFiltersRef.current;
@@ -179,11 +159,10 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             prevFilters.selectedTag !== selectedTag ||
             prevFilters.subjectId !== subjectId ||
             prevFilters.gradeFilter !== gradeFilter ||
-            prevFilters.chapterFilter !== chapterFilter ||
             prevFilters.paperLevelFilter !== paperLevelFilter;
 
         // 更新 ref
-        prevFiltersRef.current = { search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter };
+        prevFiltersRef.current = { search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, paperLevelFilter };
 
         if (filtersChanged && page !== 1) {
             // 筛选条件变化且不在第一页，重置到第一页（会再次触发此 effect）
@@ -193,7 +172,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
 
         // 正常请求数据
         fetchItems();
-    }, [page, search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter]);
+    }, [page, search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, paperLevelFilter]);
 
     const fetchItems = async () => {
         setLoading(true);
@@ -211,7 +190,6 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                 params.append("tag", selectedTag);
             }
             if (gradeFilter) params.append("gradeSemester", gradeFilter);
-            if (chapterFilter) params.append("chapter", chapterFilter); // 章节筛选
             if (paperLevelFilter !== "all") params.append("paperLevel", paperLevelFilter);
             // 分页参数
             params.append("page", page.toString());
@@ -291,10 +269,10 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
                 <div className="w-full sm:w-auto">
                     <KnowledgeFilter
+                        subjectId={subjectId}
                         gradeSemester={gradeFilter}
                         tag={selectedTag}
                         onFilterChange={handleFilterChange}
-                        subjectName={subjectName}
                     />
                 </div>
                 <div className="flex flex-wrap gap-2">

@@ -7,17 +7,17 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:stats:practice:clear');
 
-export async function DELETE(req: Request) {
+export async function DELETE() {
     const session = await getServerSession(authOptions);
 
     if (!session || !session.user) {
         return unauthorized();
     }
 
-    // @ts-ignore
     const userId = session.user.id;
 
     try {
+        await prisma.practiceSession.deleteMany({ where: { userId } });
         const result = await prisma.practiceRecord.deleteMany({
             where: { userId },
         });

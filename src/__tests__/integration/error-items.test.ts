@@ -62,6 +62,7 @@ vi.mock('@/lib/grade-calculator', () => ({
 // Import after mocks
 import { POST } from '@/app/api/error-items/route';
 import { GET as GET_ITEM, PUT } from '@/app/api/error-items/[id]/route';
+import { GET as GET_FILTER_OPTIONS } from '@/app/api/error-items/filter-options/route';
 import { GET as GET_LIST } from '@/app/api/error-items/list/route';
 import { PATCH as PATCH_NOTES } from '@/app/api/error-items/[id]/notes/route';
 import { PATCH as PATCH_MASTERY } from '@/app/api/error-items/[id]/mastery/route';
@@ -446,6 +447,67 @@ describe('/api/error-items', () => {
         });
     });
 
+    describe('GET /api/error-items/filter-options (获取筛选选项)', () => {
+        it('应该要求提供错题本 ID', async () => {
+            const response = await GET_FILTER_OPTIONS(new Request('http://localhost/api/error-items/filter-options'));
+
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaErrorItem.findMany).not.toHaveBeenCalled();
+        });
+
+        it('应该从当前错题本提取原始年级和知识点', async () => {
+            mocks.mockPrismaErrorItem.findMany.mockResolvedValue([
+                {
+                    gradeSemester: '三年级上',
+                    knowledgePoints: '["不应出现"]',
+                    tags: [{ name: '分数加法' }],
+                },
+                {
+                    gradeSemester: '三年级上',
+                    knowledgePoints: '["旧知识点", "分数加法", 1]',
+                    tags: [],
+                },
+                {
+                    gradeSemester: '四年级下',
+                    knowledgePoints: 'invalid json',
+                    tags: [],
+                },
+                {
+                    gradeSemester: '',
+                    knowledgePoints: '{"name":"不是数组"}',
+                    tags: [],
+                },
+            ]);
+
+            const response = await GET_FILTER_OPTIONS(
+                new Request('http://localhost/api/error-items/filter-options?subjectId=notebook-1'),
+            );
+            const data = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(data.grades).toHaveLength(2);
+            expect(data.grades).toEqual(expect.arrayContaining(['三年级上', '四年级下']));
+            expect(data.tags).toHaveLength(2);
+            expect(data.tags).toEqual(expect.arrayContaining(['分数加法', '旧知识点']));
+            expect(data.tags).not.toContain('不应出现');
+            expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { userId: 'user-123', subjectId: 'notebook-1' },
+                }),
+            );
+        });
+
+        it('应该为空错题本返回空选项', async () => {
+            mocks.mockPrismaErrorItem.findMany.mockResolvedValue([]);
+
+            const response = await GET_FILTER_OPTIONS(
+                new Request('http://localhost/api/error-items/filter-options?subjectId=empty-notebook'),
+            );
+
+            expect(await response.json()).toEqual({ grades: [], tags: [] });
+        });
+    });
+
     describe('GET /api/error-items/list (获取错题列表)', () => {
         it('应该返回用户的错题（分页响应）', async () => {
             const errorItems = [
@@ -537,9 +599,38 @@ describe('/api/error-items', () => {
             expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(
                 expect.objectContaining({
                     where: expect.objectContaining({
-                        knowledgePoints: { contains: '一元一次方程' },
+                        AND: expect.arrayContaining([
+                            {
+                                OR: [
+                                    { tags: { some: { name: '一元一次方程' } } },
+                                    {
+                                        AND: [
+                                            { tags: { none: {} } },
+                                            { knowledgePoints: { contains: '"一元一次方程"' } },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ]),
                     }),
                 })
+            );
+        });
+
+        it('应该按数据库中的原始年级精确筛选', async () => {
+            mocks.mockPrismaErrorItem.count.mockResolvedValue(0);
+            mocks.mockPrismaErrorItem.findMany.mockResolvedValue([]);
+
+            const request = new Request('http://localhost/api/error-items/list?gradeSemester=三年级上');
+            const response = await GET_LIST(request);
+
+            expect(response.status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        gradeSemester: '三年级上',
+                    }),
+                }),
             );
         });
 

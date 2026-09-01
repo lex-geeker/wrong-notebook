@@ -1,365 +1,484 @@
 "use client";
 
-import { useState, Suspense, useEffect } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+    ArrowLeft,
+    Check,
+    CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
+    House,
+    Loader2,
+    Play,
+    RotateCcw,
+    Sparkles,
+    Target,
+    XCircle,
+} from "lucide-react";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, RefreshCw, CheckCircle, Eye, Send, XCircle, ArrowLeft, House } from "lucide-react";
-import { ParsedQuestion } from "@/lib/ai/types";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { apiClient } from "@/lib/api-client";
-import { AppConfig } from "@/types/api";
-import { frontendLogger } from "@/lib/frontend-logger";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { ApiError, apiClient } from "@/lib/api-client";
+import { PRACTICE_COUNTS, type PracticeCount, type PracticeMode, type PracticeSource } from "@/lib/practice";
+import type { Notebook, PracticeSessionData, PracticeSessionSummary } from "@/types/api";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+
+type AnswerResponse = {
+    answer: NonNullable<PracticeSessionData["items"][number]["answer"]>;
+    masteryLevel: number | null;
+    endedAt: string | null;
+};
+
+function apiMessage(cause: unknown, fallback: string) {
+    if (cause instanceof ApiError && cause.data && typeof cause.data === "object" && "message" in cause.data) {
+        return String(cause.data.message);
+    }
+    return fallback;
+}
+
+function hasErrorReason(cause: unknown, reason: string) {
+    if (!(cause instanceof ApiError) || !cause.data || typeof cause.data !== "object" || !("details" in cause.data)) {
+        return false;
+    }
+    const details = cause.data.details;
+    return Boolean(details && typeof details === "object" && "reason" in details && details.reason === reason);
+}
 
 function PracticeContent() {
-    const searchParams = useSearchParams();
     const router = useRouter();
-    const errorItemId = searchParams.get("id");
+    const searchParams = useSearchParams();
+    const errorItemId = searchParams.get("id") || undefined;
     const { t, language } = useLanguage();
+    const copy = t.practice.batch;
 
-    const [question, setQuestion] = useState<ParsedQuestion | null>(null);
+    const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+    const [history, setHistory] = useState<PracticeSessionSummary[]>([]);
+    const [mode, setMode] = useState<PracticeMode>("random");
+    const [source, setSource] = useState<PracticeSource>(errorItemId ? "variant" : "original");
+    const [count, setCount] = useState<PracticeCount>(5);
+    const [subjectId, setSubjectId] = useState("all");
+    const [session, setSession] = useState<PracticeSessionData | null>(null);
+    const [activeIndex, setActiveIndex] = useState(0);
+    const [answers, setAnswers] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
-    const [showAnswer, setShowAnswer] = useState(false);
-    const [userAnswer, setUserAnswer] = useState("");
-    const [notes, setNotes] = useState("");
-    const [isSubmitted, setIsSubmitted] = useState(false);
-    const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-    const [config, setConfig] = useState<AppConfig | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [showReview, setShowReview] = useState(false);
+    const [error, setError] = useState("");
+
+    const refreshHistory = () => apiClient.get<PracticeSessionSummary[]>("/api/practice/sessions")
+        .then(setHistory)
+        .catch(() => setHistory([]));
 
     useEffect(() => {
-        apiClient.get<AppConfig>("/api/settings")
-            .then(data => {
-                setConfig(data);
-                if (data.timeouts?.analyze) {
-                    frontendLogger.info('[Config]', 'Loaded timeout settings', {
-                        analyze: data.timeouts.analyze
-                    });
-                }
-            })
-            .catch(err => console.error(err));
+        Promise.all([
+            apiClient.get<Notebook[]>("/api/notebooks").then(setNotebooks),
+            refreshHistory(),
+        ]).catch(() => undefined);
     }, []);
 
-    const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | "harder">("medium");
+    const currentItem = session?.items[activeIndex];
+    const finished = Boolean(session && session.answeredCount === session.itemCount);
+    const progress = session ? (session.answeredCount / session.itemCount) * 100 : 0;
+    const currentAnswer = currentItem
+        ? answers[currentItem.id] ?? currentItem.answer?.answerInput ?? ""
+        : "";
+    const modeLabels: Record<string, string> = {
+        random: copy.random,
+        unmastered: copy.unmastered,
+        ebbinghaus: copy.ebbinghaus,
+        knowledge: copy.legacyKnowledge,
+    };
 
-    const [error, setError] = useState<string | null>(null);
-
-    const generateQuestion = async () => {
-        if (!errorItemId) return;
-
+    async function startPractice() {
         setLoading(true);
-        setError(null);
-        setUserAnswer("");
-        setNotes("");
-        setIsSubmitted(false);
-        setIsCorrect(null);
-        setShowAnswer(false);
+        setError("");
         try {
-            const timeout = config?.timeouts?.analyze || 180000;
-            frontendLogger.info('[Practice]', 'Generating question', {
-                timeout
-            });
-            const data = await apiClient.post<ParsedQuestion>("/api/practice/generate", {
-                errorItemId,
+            const data = await apiClient.post<PracticeSessionData>("/api/practice/sessions", {
+                mode,
+                questionSource: source,
+                count,
                 language,
-                difficulty
-            }, { timeout });
-            setQuestion(data);
-        } catch (error: any) {
-            console.error(error);
-            const msg = error.data?.message || "";
-
-            let errorMessage = t.practice.errors?.default || "Failed to generate";
-
-            if (msg.includes('AI_CONNECTION_FAILED')) {
-                errorMessage = t.errors?.aiConnectionFailed || errorMessage;
-            } else if (msg.includes('AI_RESPONSE_ERROR')) {
-                errorMessage = t.errors?.aiResponseError || errorMessage;
-            } else if (msg.includes('AI_AUTH_ERROR')) {
-                errorMessage = t.errors?.aiAuth || errorMessage;
-            } else if (msg.includes('AI_UNKNOWN_ERROR')) {
-                errorMessage = t.errors?.AI_UNKNOWN_ERROR || errorMessage;
-            }
-
-            setError(errorMessage);
+                errorItemId,
+                filters: {
+                    subjectId: subjectId === "all" ? undefined : subjectId,
+                    mastery: mode === "unmastered" ? "all" : undefined,
+                },
+            });
+            setSession(data);
+            setActiveIndex(0);
+            setAnswers({});
+            setShowReview(false);
+        } catch (cause: unknown) {
+            setError(hasErrorReason(cause, "NO_DUE_REVIEWS") ? copy.noDue : apiMessage(cause, copy.createError));
         } finally {
             setLoading(false);
         }
-    };
-
-    const submitAnswer = () => {
-        if (!userAnswer.trim() || !question) return;
-
-        setIsSubmitted(true);
-
-        const normalize = (str: string) => str.trim().toLowerCase().replace(/[.,;!]/g, '');
-        const user = normalize(userAnswer);
-        const correct = normalize(question.answerText);
-
-        // Enhanced comparison logic
-        let isMatch = user === correct;
-
-        // Handle multiple choice (e.g. user enters "A" but answer is "A. some text")
-        if (!isMatch && /^[a-d]$/.test(user)) {
-            isMatch = correct.startsWith(user);
-        }
-
-        // Handle case where answer contains the user input (e.g. answer is "The answer is 5" and user enters "5")
-        if (!isMatch && correct.includes(user) && user.length > 1) {
-            isMatch = true;
-        }
-
-        setIsCorrect(isMatch);
-        setShowAnswer(true);
-
-        // Save practice record
-        apiClient.post("/api/practice/record", {
-            subject: question.subject || "Unknown",
-            difficulty,
-            isCorrect: isMatch
-        }).catch(err => console.error("Failed to save practice record:", err));
-    };
-
-    if (!errorItemId) {
-        return <div className="p-8 text-center">{t.practice.invalidRequest || "Invalid Request"}</div>;
     }
 
-    return (
-        <div className="max-w-3xl mx-auto space-y-8">
-            <div className="flex justify-between items-center mb-4">
-                <Button variant="ghost" onClick={() => router.back()}>
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    {t.common?.back || "返回"}
-                </Button>
-                <Link href="/">
-                    <Button variant="ghost" size="icon">
-                        <House className="h-5 w-5" />
-                    </Button>
-                </Link>
-            </div>
-            <div className="text-center space-y-4">
-                <h1 className="text-3xl font-bold">{t.practice.title}</h1>
-                <p className="text-muted-foreground">
-                    {t.practice.subtitle}
-                </p>
+    async function openSession(id: string) {
+        setLoading(true);
+        setError("");
+        try {
+            const data = await apiClient.get<PracticeSessionData>(`/api/practice/sessions/${id}`);
+            setSession(data);
+            const next = data.items.findIndex((item) => !item.answer);
+            setActiveIndex(next < 0 ? 0 : next);
+            setShowReview(false);
+        } catch (cause: unknown) {
+            setError(apiMessage(cause, copy.loadError));
+        } finally {
+            setLoading(false);
+        }
+    }
 
-                {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
-                        <strong className="font-bold">{t.common?.error || "Error"}: </strong>
-                        <span className="block whitespace-pre-wrap"> {error}</span>
-                    </div>
-                )}
+    async function submitAnswer() {
+        if (!session || !currentItem || !currentAnswer.trim() || currentItem.answer) return;
+        setSubmitting(true);
+        setError("");
+        try {
+            const result = await apiClient.post<AnswerResponse>(
+                `/api/practice/sessions/${session.id}/answer`,
+                { itemId: currentItem.id, answerInput: currentAnswer },
+            );
+            setSession((current) => current && ({
+                ...current,
+                endedAt: result.endedAt || current.endedAt,
+                answeredCount: current.answeredCount + 1,
+                correctCount: current.correctCount + Number(result.answer.isCorrect),
+                items: current.items.map((item) => item.id === currentItem.id
+                    ? { ...item, answer: result.answer }
+                    : item),
+            }));
+            if (result.endedAt) refreshHistory();
+        } catch (cause: unknown) {
+            setError(apiMessage(cause, copy.submitError));
+        } finally {
+            setSubmitting(false);
+        }
+    }
 
-                {!question && (
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="flex items-center gap-2 bg-muted/50 p-2 rounded-lg">
-                            <span className="text-sm font-medium text-muted-foreground">{t.practice.difficulty?.label || "Difficulty"}:</span>
-                            <div className="flex gap-1">
-                                {[
-                                    { value: "easy", label: t.practice.difficulty?.easy || "Easy", color: "bg-green-100 text-green-700 hover:bg-green-200" },
-                                    { value: "medium", label: t.practice.difficulty?.medium || "Medium", color: "bg-blue-100 text-blue-700 hover:bg-blue-200" },
-                                    { value: "hard", label: t.practice.difficulty?.hard || "Hard", color: "bg-orange-100 text-orange-700 hover:bg-orange-200" },
-                                    { value: "harder", label: t.practice.difficulty?.harder || "Challenge", color: "bg-red-100 text-red-700 hover:bg-red-200" }
-                                ].map((level) => (
-                                    <button
-                                        key={level.value}
-                                        onClick={() => setDifficulty(level.value as any)}
-                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${difficulty === level.value
-                                            ? level.color.replace("bg-", "bg-opacity-100 bg-").replace("text-", "ring-2 ring-offset-1 ring-")
-                                            : "bg-transparent hover:bg-muted text-muted-foreground"
-                                            } ${difficulty === level.value ? level.color : ''}`}
-                                    >
-                                        {level.label}
-                                    </button>
-                                ))}
+    function leaveSession() {
+        setSession(null);
+        setShowReview(false);
+        setError("");
+        refreshHistory();
+    }
+
+    if (session && finished && !showReview) {
+        const percent = Math.round((session.correctCount / session.itemCount) * 100);
+        return (
+            <main className="min-h-screen bg-background p-4 md:p-8">
+                <div className="mx-auto max-w-3xl space-y-6">
+                    <header className="flex items-center justify-between">
+                        <Button variant="ghost" size="icon" onClick={leaveSession} title={copy.again}>
+                            <ArrowLeft className="h-5 w-5" />
+                        </Button>
+                        <Link href="/">
+                            <Button variant="ghost" size="icon" title={copy.home}>
+                                <House className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                    </header>
+
+                    <Card className="gap-0">
+                        <CardContent className="px-6 py-10 text-center md:py-12">
+                            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300">
+                                <CheckCircle2 className="h-7 w-7" />
                             </div>
-                        </div>
+                            <p className="mb-2 text-sm font-medium text-green-700 dark:text-green-300">{copy.complete}</p>
+                            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{copy.resultTitle}</h1>
+                            <div className="mt-7 font-mono text-5xl font-semibold tabular-nums">
+                                {percent}<span className="text-xl text-muted-foreground">%</span>
+                            </div>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                                {session.correctCount} / {session.itemCount} {copy.correctShort}
+                            </p>
+                        </CardContent>
+                    </Card>
 
-                        <Button size="lg" onClick={generateQuestion} disabled={loading}>
-                            {loading ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    {t.practice.generating}
-                                </>
-                            ) : (
-                                <>
-                                    <RefreshCw className="mr-2 h-4 w-4" />
-                                    {t.practice.generate}
-                                </>
-                            )}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Button variant="outline" size="lg" onClick={() => setShowReview(true)}>
+                            <Check className="mr-2 h-4 w-4" />{copy.review}
+                        </Button>
+                        <Button size="lg" onClick={leaveSession}>
+                            <RotateCcw className="mr-2 h-4 w-4" />{copy.again}
                         </Button>
                     </div>
-                )}
-            </div>
+                </div>
+            </main>
+        );
+    }
 
-            {question && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <Card className="border-primary/50 shadow-lg">
-                        <CardHeader>
-                            <CardTitle className="flex justify-between items-center">
-                                <span>{t.app.practiceProblem}</span>
-                                <div className="flex items-center gap-2">
-                                    <select
-                                        value={difficulty}
-                                        onChange={(e) => setDifficulty(e.target.value as any)}
-                                        className="h-8 text-xs border rounded px-2 bg-background"
-                                        disabled={loading}
-                                    >
-                                        <option value="easy">{t.practice.difficulty?.easy || "Easy"}</option>
-                                        <option value="medium">{t.practice.difficulty?.medium || "Medium"}</option>
-                                        <option value="hard">{t.practice.difficulty?.hard || "Hard"}</option>
-                                        <option value="harder">{t.practice.difficulty?.harder || "Challenge"}</option>
-                                    </select>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={generateQuestion}
-                                        disabled={loading}
-                                    >
-                                        {loading ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                {t.practice.generating}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <RefreshCw className="mr-2 h-4 w-4" />
-                                                {t.practice.regenerate}
-                                            </>
-                                        )}
-                                    </Button>
-                                </div>
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <MarkdownRenderer content={question.questionText} className="font-medium" />
-                        </CardContent>
-                    </Card>
-
-
-                    {/* Answer Input Section */}
-                    <Card className="border-blue-200">
-                        <CardHeader>
-                            <CardTitle className="text-blue-600">
-                                {t.app.yourAnswer || "你的答案"}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <Input
-                                placeholder={t.app.answerPlaceholder || "输入你的答案..."}
-                                value={userAnswer}
-                                onChange={(e) => setUserAnswer(e.target.value)}
-                                disabled={isSubmitted}
-                                className="text-lg"
-                            />
-                            <Textarea
-                                placeholder={t.app.notesPlaceholder || "记录解题思路（可选）..."}
-                                value={notes}
-                                onChange={(e) => setNotes(e.target.value)}
-                                disabled={isSubmitted}
-                                rows={3}
-                            />
-                        </CardContent>
-                    </Card>
-
-                    {/* Submit/Result Section */}
-                    {!isSubmitted ? (
-                        <div className="flex justify-center">
-                            <Button
-                                size="lg"
-                                onClick={submitAnswer}
-                                disabled={!userAnswer.trim()}
-                                className="w-full md:w-auto"
-                            >
-                                <Send className="mr-2 h-4 w-4" />
-                                {t.app.submitAnswer || "提交答案"}
-                            </Button>
+    if (session && currentItem) {
+        const answered = currentItem.answer;
+        const atLast = activeIndex === session.items.length - 1;
+        return (
+            <main className="min-h-screen bg-background">
+                <header className="border-b bg-card">
+                    <div className="mx-auto flex max-w-5xl items-center gap-4 px-4 py-4">
+                        <Button variant="ghost" size="icon" onClick={leaveSession} title={copy.exit}>
+                            <ArrowLeft className="h-5 w-5" />
+                        </Button>
+                        <div className="min-w-0 flex-1">
+                            <div className="mb-2 flex justify-between gap-4 text-xs font-medium text-muted-foreground">
+                                <span>{copy.question} {activeIndex + 1} / {session.itemCount}</span>
+                                <span>{session.answeredCount} {copy.answered}</span>
+                            </div>
+                            <Progress value={progress} className="h-2" />
                         </div>
-                    ) : (
-                        <Card className={isCorrect ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}>
-                            <CardContent className="pt-6">
-                                <div className="flex items-center gap-3 mb-4">
-                                    {isCorrect ? (
-                                        <>
-                                            <CheckCircle className="h-8 w-8 text-green-600" />
-                                            <div>
-                                                <h3 className="text-xl font-bold text-green-600">
-                                                    {t.practice.correct || "回答正确！"}
-                                                </h3>
-                                                <p className="text-green-700">
-                                                    {t.practice.correctMessage || "太棒了，继续保持！"}
-                                                </p>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <XCircle className="h-8 w-8 text-red-600" />
-                                            <div>
-                                                <h3 className="text-xl font-bold text-red-600">
-                                                    {t.practice.incorrect || "答案有误"}
-                                                </h3>
-                                                <p className="text-red-700">
-                                                    {t.practice.incorrectMessage || "再看看解析，加油！"}
-                                                </p>
-                                            </div>
-                                        </>
-                                    )}
+                        <Link href="/">
+                            <Button variant="ghost" size="icon" title={copy.home}>
+                                <House className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                    </div>
+                </header>
+
+                <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 md:py-10">
+                    <nav className="flex flex-wrap gap-2" aria-label={copy.progress}>
+                        {session.items.map((item, index) => (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setActiveIndex(index)}
+                                className={`flex h-9 w-9 items-center justify-center rounded-md border text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                                    index === activeIndex
+                                        ? "border-primary bg-primary text-primary-foreground"
+                                        : item.answer?.isCorrect
+                                            ? "border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+                                            : item.answer
+                                                ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+                                                : "bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                }`}
+                                aria-current={index === activeIndex ? "step" : undefined}
+                            >
+                                {index + 1}
+                            </button>
+                        ))}
+                    </nav>
+
+                    <Card className="gap-0">
+                        <CardHeader className="border-b">
+                            <div className="flex items-center justify-between gap-3">
+                                <Badge variant="outline" className="font-normal">
+                                    {currentItem.generationMode === "variant" ? <Sparkles className="h-3 w-3" /> : null}
+                                    {copy[currentItem.generationMode as "original" | "variant" | "fallback"] || copy.original}
+                                </Badge>
+                                <span className="font-mono text-xs text-muted-foreground">
+                                    {String(activeIndex + 1).padStart(2, "0")}
+                                </span>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="px-5 py-8 md:px-10 md:py-10">
+                            <MarkdownRenderer content={currentItem.questionText} className="text-base leading-8 md:text-lg" />
+                        </CardContent>
+                    </Card>
+
+                    <section className="space-y-2">
+                        <Label htmlFor="practice-answer" className="font-semibold">{copy.yourAnswer}</Label>
+                        <div className="flex flex-col gap-3 sm:flex-row">
+                            <Input
+                                id="practice-answer"
+                                value={currentAnswer}
+                                onChange={(event) => setAnswers((current) => ({ ...current, [currentItem.id]: event.target.value }))}
+                                onKeyDown={(event) => { if (event.key === "Enter") submitAnswer(); }}
+                                placeholder={copy.answerPlaceholder}
+                                disabled={Boolean(answered) || submitting}
+                                className="h-12 bg-card text-base"
+                                autoFocus={!answered}
+                            />
+                            {!answered && (
+                                <Button className="h-12 shrink-0 px-6" onClick={submitAnswer} disabled={!currentAnswer.trim() || submitting}>
+                                    {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                                    {submitting ? copy.submitting : copy.submit}
+                                </Button>
+                            )}
+                        </div>
+                    </section>
+
+                    {answered && (
+                        <Card className={`gap-0 ${answered.isCorrect
+                            ? "border-green-300 bg-green-50/60 dark:border-green-900 dark:bg-green-950/40"
+                            : "border-red-300 bg-red-50/60 dark:border-red-900 dark:bg-red-950/40"}`}>
+                            <CardContent className="px-5 py-5">
+                                <div className="flex items-center gap-2 font-semibold">
+                                    {answered.isCorrect
+                                        ? <CheckCircle2 className="h-5 w-5 text-green-700 dark:text-green-300" />
+                                        : <XCircle className="h-5 w-5 text-red-700 dark:text-red-300" />}
+                                    {answered.isCorrect ? copy.correct : copy.incorrect}
                                 </div>
-                                {notes && (
-                                    <div className="mt-4 p-3 bg-white rounded-lg border">
-                                        <p className="text-sm font-medium text-gray-600 mb-1">
-                                            {t.practice.yourNotes || "你的笔记："}
-                                        </p>
-                                        <p className="text-gray-700 whitespace-pre-wrap">{notes}</p>
-                                    </div>
-                                )}
+                                <div className="mt-4 border-t border-border pt-4">
+                                    <p className="mb-2 text-xs font-semibold text-muted-foreground">{copy.expectedAnswer}</p>
+                                    <MarkdownRenderer content={answered.expectedAnswer} />
+                                </div>
                             </CardContent>
                         </Card>
                     )}
 
-                    {showAnswer && (
-                        <div className="space-y-6 animate-in fade-in slide-in-from-top-2">
-                            <Card className="bg-muted/50">
-                                <CardHeader>
-                                    <CardTitle className="text-green-600">{t.practice.correctAnswer}</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <MarkdownRenderer content={question.answerText} className="font-bold" />
-                                </CardContent>
-                            </Card>
+                    {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
 
-
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>{t.practice.detailedAnalysis}</CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <MarkdownRenderer content={question.analysis} />
-                                </CardContent>
-                            </Card>
-                        </div>
-                    )}
+                    <footer className="flex items-center justify-between border-t pt-5">
+                        <Button variant="ghost" onClick={() => setActiveIndex((index) => index - 1)} disabled={activeIndex === 0}>
+                            <ChevronLeft className="mr-1 h-4 w-4" />{copy.previous}
+                        </Button>
+                        {answered && (
+                            <Button
+                                onClick={() => atLast ? setShowReview(false) : setActiveIndex((index) => index + 1)}
+                                disabled={atLast && !finished}
+                            >
+                                {atLast ? copy.results : copy.next}
+                                {!atLast && <ChevronRight className="ml-1 h-4 w-4" />}
+                            </Button>
+                        )}
+                    </footer>
                 </div>
-            )}
+            </main>
+        );
+    }
+
+    const sourceSelect = (
+        <div className="space-y-2">
+            <Label htmlFor="practice-source">{copy.source}</Label>
+            <Select value={source} onValueChange={(value) => setSource(value as PracticeSource)}>
+                <SelectTrigger id="practice-source"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="original">{copy.original}</SelectItem>
+                    <SelectItem value="variant">{copy.variant}</SelectItem>
+                </SelectContent>
+            </Select>
         </div>
+    );
+
+    return (
+        <main className="min-h-screen bg-background p-4 md:p-8">
+            <div className="mx-auto max-w-6xl space-y-8">
+                <header className="flex items-start gap-4">
+                    <Button variant="ghost" size="icon" onClick={() => router.back()} title={t.common.back || "Back"}>
+                        <ArrowLeft className="h-5 w-5" />
+                    </Button>
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t.practice.title}</h1>
+                        <p className="text-sm text-muted-foreground sm:text-base">{t.practice.subtitle}</p>
+                    </div>
+                    <Link href="/">
+                        <Button variant="ghost" size="icon" title={copy.home}>
+                            <House className="h-5 w-5" />
+                        </Button>
+                    </Link>
+                </header>
+
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>{copy.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {errorItemId ? (
+                                <>
+                                    <div className="flex items-center gap-3 rounded-md border bg-muted px-4 py-3 text-sm font-medium">
+                                        <Target className="h-5 w-5 shrink-0" />{copy.focused}
+                                    </div>
+                                    {sourceSelect}
+                                </>
+                            ) : (
+                                <div className="grid gap-5 sm:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="practice-mode">{copy.mode}</Label>
+                                        <Select value={mode} onValueChange={(value) => setMode(value as PracticeMode)}>
+                                            <SelectTrigger id="practice-mode"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="random">{copy.random}</SelectItem>
+                                                <SelectItem value="unmastered">{copy.unmastered}</SelectItem>
+                                                <SelectItem value="ebbinghaus">{copy.ebbinghaus}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="practice-notebook">{copy.subject}</Label>
+                                        <Select value={subjectId} onValueChange={setSubjectId}>
+                                            <SelectTrigger id="practice-notebook"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">{copy.allSubjects}</SelectItem>
+                                                {notebooks.map((notebook) => (
+                                                    <SelectItem key={notebook.id} value={notebook.id}>{notebook.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="practice-count">{copy.count}</Label>
+                                        <Select value={String(count)} onValueChange={(value) => setCount(Number(value) as PracticeCount)}>
+                                            <SelectTrigger id="practice-count"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                {PRACTICE_COUNTS.map((value) => (
+                                                    <SelectItem key={value} value={String(value)}>{value}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {sourceSelect}
+                                </div>
+                            )}
+
+                            {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+                            <Button size="lg" className="h-12 w-full" onClick={startPractice} disabled={loading}>
+                                {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />}
+                                {loading ? copy.starting : copy.start}
+                            </Button>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="self-start">
+                        <CardHeader className="border-b">
+                            <div className="flex items-center justify-between gap-3">
+                                <CardTitle className="text-base">{copy.history}</CardTitle>
+                                <span className="font-mono text-xs text-muted-foreground">{history.length}</span>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="divide-y p-0">
+                            {history.length === 0 ? (
+                                <p className="px-6 py-8 text-sm text-muted-foreground">{copy.noHistory}</p>
+                            ) : history.map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => openSession(item.id)}
+                                    className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-semibold">{modeLabels[item.mode] || item.mode}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {new Date(item.startedAt).toLocaleDateString(language)} / {item.answeredCount}/{item.itemCount}
+                                        </p>
+                                    </div>
+                                    <span className="font-mono text-sm">{item.correctCount}/{item.itemCount}</span>
+                                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </button>
+                            ))}
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+        </main>
     );
 }
 
 export default function PracticePage() {
     return (
-        <main className="min-h-screen p-8 bg-background">
-            <Suspense fallback={
-                <div className="flex justify-center p-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-            }>
-                <PracticeContent />
-            </Suspense>
-        </main>
+        <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-7 w-7 animate-spin" /></div>}>
+            <PracticeContent />
+        </Suspense>
     );
 }

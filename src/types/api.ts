@@ -1,4 +1,7 @@
 import { ParsedQuestion } from "@/lib/ai/types";
+import type { PracticeMode, PracticeSource } from "@/lib/practice";
+
+export type { PracticeFilters, PracticeMode, PracticeSource } from "@/lib/practice";
 
 // 通用分页响应类型
 export interface PaginatedResponse<T> {
@@ -151,6 +154,42 @@ export interface PracticeStatsData {
     activityStats: { date: string; total: number; correct: number;[key: string]: number | string }[];
     difficultyStats: { name: string; value: number }[];
     overallStats: { total: number; correct: number; rate: string };
+}
+
+export interface ErrorItemFilterOptions {
+    grades: string[];
+    tags: string[];
+}
+
+export type PracticeGenerationMode = "pending" | "original" | "variant" | "fallback";
+
+export interface PracticeSessionSummary {
+    id: string;
+    mode: PracticeMode | "knowledge";
+    questionSource: PracticeSource | "mixed";
+    startedAt: string;
+    endedAt: string | null;
+    itemCount: number;
+    answeredCount: number;
+    correctCount: number;
+}
+
+export interface PracticeSessionItemData {
+    id: string;
+    position: number;
+    errorItemId: string | null;
+    questionText: string;
+    generationMode: PracticeGenerationMode;
+    answer?: {
+        answerInput: string;
+        expectedAnswer: string;
+        isCorrect: boolean;
+        matchType: string;
+    };
+}
+
+export interface PracticeSessionData extends PracticeSessionSummary {
+    items: PracticeSessionItemData[];
 }
 
 export interface TagStats {

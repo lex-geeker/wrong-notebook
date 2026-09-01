@@ -98,7 +98,7 @@ export default function NotebookDetailPage() {
                     </div>
                 </div>
 
-                <ErrorList subjectId={notebook.id} subjectName={notebook.name} />
+                <ErrorList subjectId={notebook.id} />
 
                 <RenameNotebookDialog
                     open={renameDialogOpen}

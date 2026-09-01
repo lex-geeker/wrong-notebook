@@ -28,6 +28,7 @@ model User {
   errorItems ErrorItem[]
   subjects   Subject[]
   practiceRecords PracticeRecord[]
+  practiceSessions PracticeSession[]
   customTags KnowledgeTag[] // User's custom tags
 }
 
@@ -114,6 +115,8 @@ model ErrorItem {
   updatedAt        DateTime @updatedAt
 
   reviewSchedules ReviewSchedule[]
+  practiceSessionItems PracticeSessionItem[]
+  practiceRecords PracticeRecord[]
 }
 
 model ReviewSchedule {
@@ -129,13 +132,58 @@ model ReviewSchedule {
 }
 
 model PracticeRecord {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionItemId String?  @unique
+  sessionItem   PracticeSessionItem? @relation(fields: [sessionItemId], references: [id], onDelete: Cascade)
+  errorItemId   String?
+  errorItem     ErrorItem? @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
   
   subject   String?  // e.g. "Math", "Physics"
   difficulty String? // "easy", "medium", "hard", "harder"
   isCorrect Boolean?
+  answerInput String?
   
   createdAt DateTime @default(now())
+
+  @@index([errorItemId])
+}
+
+model PracticeSession {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode           String
+  questionSource String
+  language       String   @default("zh")
+  startedAt      DateTime @default(now())
+  endedAt        DateTime?
+
+  items PracticeSessionItem[]
+
+  @@index([userId, startedAt])
+}
+
+model PracticeSessionItem {
+  id                 String   @id @default(cuid())
+  sessionId          String
+  session            PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  errorItemId        String?
+  errorItem          ErrorItem? @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
+  position           Int
+  subjectName        String?
+  gradeSemester      String?
+  knowledgePoints    String?
+  sourceQuestionText String
+  sourceAnswerText   String
+  questionText       String
+  answerText         String
+  generationMode     String   @default("original")
+
+  record PracticeRecord?
+
+  @@unique([sessionId, position])
+  @@unique([sessionId, errorItemId])
+  @@index([errorItemId])
 }
