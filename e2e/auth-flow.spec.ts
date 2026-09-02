@@ -39,7 +39,9 @@ test.describe('Authentication Flow', () => {
         // --- Handle Result ---
         try {
             // Error: "该邮箱已被注册"
-            const errorLocator = page.locator('.text-red-500');
+            const errorLocator = page.getByRole('alert').filter({
+                hasText: /该邮箱已被注册|User with this email already exists|注册失败|Registration failed/,
+            });
 
             // Race: Error text OR redirect to login
             await Promise.race([

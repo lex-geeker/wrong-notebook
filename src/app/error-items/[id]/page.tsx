@@ -20,6 +20,7 @@ import { getMistakeStatusLabel, normalizeMistakeStatusForSave } from "@/lib/mist
 import { NotebookSelector } from "@/components/notebook-selector";
 import { GeogebraDemo } from "@/components/geogebra-demo";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import {
     ERROR_SOURCES,
     ERROR_SOURCE_LABELS,
@@ -63,6 +64,7 @@ export default function ErrorDetailPage() {
     const params = useParams();
     const router = useRouter();
     const { t, language } = useLanguage();
+    const { showToast } = useToast();
     const [item, setItem] = useState<ErrorItemDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -76,12 +78,10 @@ export default function ErrorDetailPage() {
     const [notebookInput, setNotebookInput] = useState<string | null>(null);
     const [sourceInput, setSourceInput] = useState<ErrorSource>("homework");
     const [errorTypeInput, setErrorTypeInput] = useState<ErrorType | undefined>();
-    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
     const [isAnalyzingGeogebra, setIsAnalyzingGeogebra] = useState(false);
-    const [geogebraError, setGeogebraError] = useState<string | null>(null);
     const [showQuestionImage, setShowQuestionImage] = useState(false);
     const fetchItem = useCallback(async (id: string) => {
         try {
@@ -89,11 +89,11 @@ export default function ErrorDetailPage() {
             setItem(data);
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.loadFailed || 'Failed to load item' });
+            showToast(t.common?.messages?.loadFailed || 'Failed to load item', "error");
         } finally {
             setLoading(false);
         }
-    }, [t.common?.messages?.loadFailed]);
+    }, [showToast, t.common?.messages?.loadFailed]);
 
     useEffect(() => {
         // Fetch user info for education stage
@@ -113,7 +113,6 @@ export default function ErrorDetailPage() {
     const handleAnalyzeGeogebra = async () => {
         if (!item) return;
         setIsAnalyzingGeogebra(true);
-        setGeogebraError(null);
         try {
             const result = await apiClient.post<{
                 suitable: boolean;
@@ -124,7 +123,7 @@ export default function ErrorDetailPage() {
             if (result.suitable && result.commands.length > 0) {
                 setItem({ ...item, geogebraCommands: JSON.stringify(result.commands) });
             } else {
-                setGeogebraError(result.description || "该题目不适合用 GeoGebra 演示");
+                showToast(result.description || "该题目不适合用 GeoGebra 演示", "info");
             }
         } catch (error: unknown) {
             console.error("GeoGebra analysis failed:", error);
@@ -133,11 +132,11 @@ export default function ErrorDetailPage() {
                 ? data.message
                 : error instanceof Error ? error.message : "";
             if (msg.includes("AI_AUTH_ERROR")) {
-                setGeogebraError("AI 认证失败，请检查设置");
+                showToast("AI 认证失败，请检查设置", "error");
             } else if (msg.includes("AI_CONNECTION")) {
-                setGeogebraError("AI 连接失败，请检查网络");
+                showToast("AI 连接失败，请检查网络", "error");
             } else {
-                setGeogebraError("分析失败，请稍后重试");
+                showToast("分析失败，请稍后重试", "error");
             }
         } finally {
             setIsAnalyzingGeogebra(false);
@@ -151,7 +150,7 @@ export default function ErrorDetailPage() {
             setItem({ ...item, masteryLevel: 0 });
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.updateFailed || 'Update failed' });
+            showToast(t.common?.messages?.updateFailed || 'Update failed', "error");
         }
     };
 
@@ -160,6 +159,7 @@ export default function ErrorDetailPage() {
 
         try {
             await apiClient.delete(`/api/error-items/${item.id}`);
+            showToast(t.common?.messages?.deleteSuccess || "Deleted successfully", "success");
             if (item.subjectId) {
                 router.push(`/notebooks/${item.subjectId}`);
             } else {
@@ -167,7 +167,7 @@ export default function ErrorDetailPage() {
             }
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.deleteFailed || 'Delete failed' });
+            showToast(t.common?.messages?.deleteFailed || 'Delete failed', "error");
         }
     };
 
@@ -197,10 +197,10 @@ export default function ErrorDetailPage() {
 
             setIsEditingTags(false);
             await fetchItem(params.id as string);
-            setFeedback({ role: "status", message: t.common?.messages?.tagUpdateSuccess || 'Tags updated successfully!' });
+            showToast(t.common?.messages?.tagUpdateSuccess || 'Tags updated successfully!', "success");
         } catch (error) {
             console.error("[Frontend] Error updating:", error);
-            setFeedback({ role: "alert", message: t.common?.messages?.updateFailed || 'Update failed' });
+            showToast(t.common?.messages?.updateFailed || 'Update failed', "error");
         }
     };
 
@@ -232,10 +232,10 @@ export default function ErrorDetailPage() {
 
             setIsEditingMetadata(false);
             await fetchItem(params.id as string);
-            setFeedback({ role: "status", message: t.common?.messages?.metaUpdateSuccess || 'Metadata updated successfully!' });
+            showToast(t.common?.messages?.metaUpdateSuccess || 'Metadata updated successfully!', "success");
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.updateFailed || 'Update failed' });
+            showToast(t.common?.messages?.updateFailed || 'Update failed', "error");
         }
     };
 
@@ -273,10 +273,10 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item?.id}`, { questionText: questionInput });
             setIsEditingQuestion(false);
             if (item) setItem({ ...item, questionText: questionInput });
-            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
+            showToast(t.common?.messages?.saveSuccess || 'Saved successfully', "success");
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
+            showToast(t.common?.messages?.saveFailed || 'Save failed', "error");
         }
     };
 
@@ -298,10 +298,10 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item?.id}`, { answerText: answerInput });
             setIsEditingAnswer(false);
             if (item) setItem({ ...item, answerText: answerInput });
-            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
+            showToast(t.common?.messages?.saveSuccess || 'Saved successfully', "success");
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
+            showToast(t.common?.messages?.saveFailed || 'Save failed', "error");
         }
     };
 
@@ -323,10 +323,10 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item?.id}`, { analysis: analysisInput });
             setIsEditingAnalysis(false);
             if (item) setItem({ ...item, analysis: analysisInput });
-            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
+            showToast(t.common?.messages?.saveSuccess || 'Saved successfully', "success");
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
+            showToast(t.common?.messages?.saveFailed || 'Save failed', "error");
         }
     };
 
@@ -365,10 +365,10 @@ export default function ErrorDetailPage() {
                     mistakeStatus: normalizedStatus,
                 });
             }
-            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
+            showToast(t.common?.messages?.saveSuccess || 'Saved successfully', "success");
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
+            showToast(t.common?.messages?.saveFailed || 'Save failed', "error");
         }
     };
 
@@ -386,17 +386,16 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item.id}`, { userNotes: notesInput });
             setItem({ ...item, userNotes: notesInput });
             setIsEditingNotes(false);
-            setFeedback({ role: "status", message: t.common?.messages?.noteSaveSuccess || 'Notes saved successfully' });
+            showToast(t.common?.messages?.noteSaveSuccess || 'Notes saved successfully', "success");
         } catch (error) {
             console.error(error);
-            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
+            showToast(t.common?.messages?.saveFailed || 'Save failed', "error");
         }
     };
 
     if (loading) return <div className="p-8 text-center">{t.common.loading}</div>;
     if (!item) return (
         <div className="p-8 text-center space-y-3">
-            {feedback && <p role={feedback.role} className="text-sm text-destructive">{feedback.message}</p>}
             <p>{t.detail.notFound || "Item not found"}</p>
         </div>
     );
@@ -452,12 +451,6 @@ export default function ErrorDetailPage() {
                         </Button>
                     </Link>
                 </div>
-
-                {feedback && (
-                    <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
-                        {feedback.message}
-                    </p>
-                )}
 
                 <Card>
                     <CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.question}</CardTitle>{!isEditingQuestion && <Button variant="ghost" size="sm" onClick={startEditingQuestion}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
@@ -555,7 +548,7 @@ export default function ErrorDetailPage() {
                     {item.geogebraCommands ? (
                         <GeogebraDemo commands={item.geogebraCommands} height={700} showToolBar={true} showAlgebraInput={false} showMenuBar={false} onRegenerate={handleAnalyzeGeogebra} />
                     ) : (
-                        <div className="rounded-lg border border-dashed p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Box className="h-4 w-4" /><span>GeoGebra 动态演示</span></div><Button variant="outline" size="sm" onClick={() => handleAnalyzeGeogebra()} disabled={isAnalyzingGeogebra}>{isAnalyzingGeogebra ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 分析中...</> : <><Box className="mr-2 h-4 w-4" />生成演示</>}</Button></div>{geogebraError && <p className="text-xs text-muted-foreground mt-2">{geogebraError}</p>}<p className="text-xs text-muted-foreground mt-2">AI 将判断本题是否可以用 GeoGebra 进行动态演示，如适合则自动生成交互式图形</p></div>
+                        <div className="rounded-lg border border-dashed p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Box className="h-4 w-4" /><span>GeoGebra 动态演示</span></div><Button variant="outline" size="sm" onClick={() => handleAnalyzeGeogebra()} disabled={isAnalyzingGeogebra}>{isAnalyzingGeogebra ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 分析中...</> : <><Box className="mr-2 h-4 w-4" />生成演示</>}</Button></div><p className="text-xs text-muted-foreground mt-2">AI 将判断本题是否可以用 GeoGebra 进行动态演示，如适合则自动生成交互式图形</p></div>
                     )}
 
                     <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.yourNotes}</CardTitle>{!isEditingNotes && <Button variant="ghost" size="sm" onClick={startEditingNotes}><Edit className="h-4 w-4 mr-1" />{t.detail.editNotes || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingNotes ? (<div className="space-y-3"><Textarea value={notesInput} onChange={e => setNotesInput(e.target.value)} placeholder={t.detail.notesPlaceholder || "Enter your notes..."} rows={5} className="w-full" /><div className="flex gap-2"><Button size="sm" onClick={saveNotes}><Save className="h-4 w-4 mr-1" />{t.common.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingNotes}><X className="h-4 w-4 mr-1" />{t.common.cancel || "Cancel"}</Button></div></div>) : <div className="whitespace-pre-wrap">{item.userNotes ? <p className="text-foreground">{item.userNotes}</p> : <p className="text-muted-foreground italic">{t.detail.noNotes}</p>}</div>}</CardContent></Card>

@@ -14,6 +14,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 interface ConfirmDialogProps {
     children: ReactNode;
@@ -26,19 +27,18 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({ children, title, description, onConfirm, confirmLabel, verificationText }: ConfirmDialogProps) {
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [open, setOpen] = useState(false);
     const [pending, setPending] = useState(false);
     const [verification, setVerification] = useState("");
-    const [error, setError] = useState("");
 
     const handleConfirm = async () => {
         setPending(true);
-        setError("");
         try {
             await onConfirm();
             setOpen(false);
         } catch (cause) {
-            setError(cause instanceof Error ? cause.message : t.common.error);
+            showToast(cause instanceof Error ? cause.message : t.common.error, "error");
         } finally {
             setPending(false);
         }
@@ -49,7 +49,6 @@ export function ConfirmDialog({ children, title, description, onConfirm, confirm
             setOpen(nextOpen);
             if (!nextOpen) {
                 setVerification("");
-                setError("");
             }
         }}>
             <DialogTrigger asChild>{children}</DialogTrigger>
@@ -66,7 +65,6 @@ export function ConfirmDialog({ children, title, description, onConfirm, confirm
                         autoComplete="off"
                     />
                 )}
-                {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
                 <DialogFooter>
                     <DialogClose asChild>
                         <Button variant="outline" disabled={pending}>{t.common.cancel}</Button>

@@ -10,17 +10,18 @@ import { ErrorEntryFlow } from "@/components/error-entry-flow";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { UserWelcome } from "@/components/user-welcome";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient, ApiError } from "@/lib/api-client";
 import type { LearningOverview, PracticeSessionData } from "@/types/api";
 
 function HomeContent() {
     const { t, language } = useLanguage();
+    const { showToast } = useToast();
     const router = useRouter();
     const initialNotebookId = useSearchParams().get("notebook");
     const [overview, setOverview] = useState<LearningOverview | null>(null);
     const [reviewLoading, setReviewLoading] = useState(false);
-    const [reviewError, setReviewError] = useState("");
 
     useEffect(() => {
         apiClient.get<LearningOverview>("/api/learning-overview")
@@ -30,7 +31,6 @@ function HomeContent() {
 
     const createDailyTask = async () => {
         setReviewLoading(true);
-        setReviewError("");
         try {
             const session = await apiClient.post<PracticeSessionData>("/api/practice/sessions", {
                 mode: "daily",
@@ -44,9 +44,10 @@ function HomeContent() {
                 ? error.data.details
                 : null;
             const noTask = details && typeof details === "object" && "reason" in details && details.reason === "NO_DAILY_TASKS";
-            setReviewError(noTask
-                ? (language === "zh" ? "今天没有到期的复习题。" : "No reviews are due today.")
-                : t.practice.batch.createError);
+            showToast(
+                noTask ? (language === "zh" ? "今天没有到期的复习题。" : "No reviews are due today.") : t.practice.batch.createError,
+                noTask ? "info" : "error",
+            );
         } finally {
             setReviewLoading(false);
         }
@@ -105,7 +106,6 @@ function HomeContent() {
                                         : (language === "zh" ? "生成并打印今日复习" : "Create and print today's review")}
                             </Button>
                         </div>
-                        {reviewError && <p className="mt-3 text-sm text-destructive" role="alert">{reviewError}</p>}
                     </section>
                 )}
 

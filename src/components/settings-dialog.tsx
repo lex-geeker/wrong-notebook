@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -30,6 +30,7 @@ import { AppConfig, UserProfile, UpdateUserProfileRequest } from "@/types/api";
 import { PromptSettings } from "@/components/settings/prompt-settings";
 import { AiSettingsSection } from "@/components/settings/ai-settings-section";
 import { DangerSettingsSection } from "@/components/settings/danger-settings-section";
+import { useToast } from "@/components/ui/toast";
 
 import { MessageSquareText, Info, ExternalLink, Github, ScrollText } from "lucide-react";
 
@@ -44,9 +45,8 @@ interface ProfileFormState {
 export function SettingsDialog() {
     const { data: session } = useSession();
     const { t, language, setLanguage } = useLanguage();
+    const { showToast } = useToast();
     const [open, setOpen] = useState(false);
-    const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-    const dialogContentRef = useRef<HTMLDivElement>(null);
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(false);
     const [version, setVersion] = useState<string>("");
@@ -150,26 +150,24 @@ export function SettingsDialog() {
         // 验证 OpenAI 实例必填字段
         const openaiValidationError = validateOpenAIInstances();
         if (openaiValidationError) {
-            setFeedback({ type: "error", message: openaiValidationError });
+            showToast(openaiValidationError, "error");
             return;
         }
 
         // 验证 Azure 必填字段
         const azureValidationError = validateAzureConfig();
         if (azureValidationError) {
-            setFeedback({ type: "error", message: azureValidationError });
+            showToast(azureValidationError, "error");
             return;
         }
 
         setSaving(true);
         try {
             await apiClient.post("/api/settings", config);
-            setFeedback({ type: "success", message: t.settings?.messages?.saved || "Settings saved" });
-            // 保存成功后滚动到顶部，方便关闭对话框
-            dialogContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            showToast(t.settings?.messages?.saved || "Settings saved", "success");
         } catch (error) {
             console.error('[SettingsDialog] Failed to save settings', error);
-            setFeedback({ type: "error", message: t.settings?.messages?.saveFailed || "Failed to save" });
+            showToast(t.settings?.messages?.saveFailed || "Failed to save", "error");
         } finally {
             setSaving(false);
         }
@@ -180,7 +178,7 @@ export function SettingsDialog() {
         try {
             // 验证密码一致性（如果用户输入了密码）
             if (profile.password && profile.password !== confirmPassword) {
-                setFeedback({ type: "error", message: t.settings?.messages?.passwordMismatch || "Passwords do not match" });
+                showToast(t.settings?.messages?.passwordMismatch || "Passwords do not match", "error");
                 setProfileSaving(false);
                 return;
             }
@@ -201,18 +199,18 @@ export function SettingsDialog() {
 
             await apiClient.patch("/api/user", payload);
 
-            setFeedback({ type: "success", message: t.settings?.messages?.profileUpdated || "Profile updated" });
+            showToast(t.settings?.messages?.profileUpdated || "Profile updated", "success");
             setProfile(prev => ({ ...prev, password: "" })); // Clear password field
             setConfirmPassword(""); // Clear confirm password field
             setShowPassword(false);
             setShowConfirmPassword(false);
-            window.location.reload(); // Reload to update user name in UI
+            window.setTimeout(() => window.location.reload(), 3000);
         } catch (error: unknown) {
             const data = error instanceof ApiError ? error.data : null;
             const apiMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : null;
             console.error('[SettingsDialog] Failed to update profile', error);
             const message = apiMessage || (t.settings?.messages?.updateFailed || "Update failed");
-            setFeedback({ type: "error", message });
+            showToast(message, "error");
         } finally {
             setProfileSaving(false);
         }
@@ -236,22 +234,13 @@ export function SettingsDialog() {
                     <span className="sr-only">{t.settings?.title || "Settings"}</span>
                 </Button>
             </DialogTrigger>
-            <DialogContent ref={dialogContentRef} className="w-[calc(100vw-2rem)] sm:max-w-[900px] max-h-[85vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[900px] max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{t.settings?.title || "Settings"}</DialogTitle>
                     <DialogDescription>
                         {t.settings?.desc || 'Manage your preferences and data.'}
                     </DialogDescription>
                 </DialogHeader>
-                {feedback && (
-                    <p
-                        className={feedback.type === "error" ? "rounded-md bg-destructive/10 p-3 text-sm text-destructive" : "rounded-md bg-green-50 p-3 text-sm text-green-800"}
-                        role={feedback.type === "error" ? "alert" : "status"}
-                    >
-                        {feedback.message}
-                    </p>
-                )}
-
                 <Tabs defaultValue="general" className="w-full">
                     <TabsList className={`grid w-full grid-cols-4 ${session?.user?.role === 'admin' ? 'sm:grid-cols-7' : 'sm:grid-cols-4'} gap-1 h-auto`}>
                         <TabsTrigger value="general" className="px-2 sm:px-3">
@@ -519,7 +508,7 @@ export function SettingsDialog() {
                     {/* Danger Zone Tab */}
                     <DangerSettingsSection
                         isAdmin={session?.user?.role === "admin"}
-                        onFeedback={setFeedback}
+                        onFeedback={({ type, message }) => showToast(message, type)}
                         onClose={() => setOpen(false)}
                     />
 

@@ -29,6 +29,7 @@ import { getMistakeStatusLabel } from "@/lib/mistake-status";
 import { loadAllPages } from "@/lib/print-preview";
 import { deleteIdsInBatches, type BatchDeleteResponse } from "@/lib/batch-delete";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 
 interface ErrorListProps {
     subjectId: string;
@@ -42,8 +43,7 @@ type KnowledgeFilterChange = {
 export function ErrorList({ subjectId }: ErrorListProps) {
     const [items, setItems] = useState<ErrorItemSummary[]>([]);
     const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState("");
-    const [actionFeedback, setActionFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
     const [masteryFilter, setMasteryFilter] = useState<"all" | "new" | "reviewing" | "mastered">("all");
@@ -63,6 +63,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
     const [isSelectingAll, setIsSelectingAll] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const { t, language } = useLanguage();
+    const { showToast } = useToast();
     const router = useRouter();
     const selectionRequestRef = useRef(0);
     const fetchRequestRef = useRef(0);
@@ -84,7 +85,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
     const fetchItems = useCallback(async (signal?: AbortSignal) => {
         const requestId = ++fetchRequestRef.current;
         setLoading(true);
-        setLoadError("");
+        setLoadFailed(false);
         try {
             const params = buildFilterParams(debouncedSearch);
             params.append("page", page.toString());
@@ -100,12 +101,13 @@ export function ErrorList({ subjectId }: ErrorListProps) {
             if (signal?.aborted) return;
             console.error(error);
             if (fetchRequestRef.current === requestId) {
-                setLoadError(language === "zh" ? "加载错题失败，请重试。" : "Failed to load error items. Please try again.");
+                setLoadFailed(true);
+                showToast(language === "zh" ? "加载错题失败，请重试。" : "Failed to load error items. Please try again.", "error");
             }
         } finally {
             if (fetchRequestRef.current === requestId) setLoading(false);
         }
-    }, [buildFilterParams, debouncedSearch, language, page, pageSize]);
+    }, [buildFilterParams, debouncedSearch, language, page, pageSize, showToast]);
 
     const handleExportPrint = () => {
         const params = buildFilterParams(search);
@@ -167,7 +169,6 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         const params = buildFilterParams(debouncedSearch);
         params.set("pageSize", String(MAX_PAGE_SIZE));
         setIsSelectingAll(true);
-        setActionFeedback(null);
 
         try {
             const allItems = await loadAllPages(async (nextPage) => {
@@ -180,7 +181,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         } catch (error) {
             if (selectionRequestRef.current === requestId) {
                 console.error(error);
-                setActionFeedback({ role: "alert", message: t.notebook?.selectAllFailed || "Failed to select all items" });
+                showToast(t.notebook?.selectAllFailed || "Failed to select all items", "error");
             }
         } finally {
             if (selectionRequestRef.current === requestId) setIsSelectingAll(false);
@@ -191,7 +192,6 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         if (selectedIds.size === 0) return;
 
         setIsDeleting(true);
-        setActionFeedback(null);
         try {
             const ids = Array.from(selectedIds);
             const result = await deleteIdsInBatches(ids, (batch) =>
@@ -202,21 +202,21 @@ export function ErrorList({ subjectId }: ErrorListProps) {
 
             if (result.error || result.remainingIds.length > 0) {
                 if (result.error) console.error(result.error);
-                setActionFeedback({
-                    role: "alert",
-                    message: (t.notebook?.batchDeletePartial || "Deleted {deleted}; {remaining} remain selected")
+                showToast(
+                    (t.notebook?.batchDeletePartial || "Deleted {deleted}; {remaining} remain selected")
                         .replace("{deleted}", result.deletedCount.toString())
                         .replace("{remaining}", result.remainingIds.length.toString()),
-                });
+                    "error",
+                );
                 return;
             }
 
-            setActionFeedback({ role: "status", message: t.notebook?.batchDeleteSuccess || "Deleted successfully" });
+            showToast(t.notebook?.batchDeleteSuccess || "Deleted successfully", "success");
             setIsSelectMode(false);
             setSelectedIds(new Set());
         } catch (error) {
             console.error(error);
-            setActionFeedback({ role: "alert", message: t.common?.messages?.deleteFailed || "Delete failed" });
+            showToast(t.common?.messages?.deleteFailed || "Delete failed", "error");
         } finally {
             setIsDeleting(false);
         }
@@ -380,20 +380,13 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                 </div>
             )}
 
-            {loadError && (
-                <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-                    <span>{loadError}</span>
+            {loadFailed && (
+                <div className="flex justify-end">
                     <Button variant="outline" size="sm" onClick={() => void fetchItems()}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         {language === "zh" ? "重试" : "Retry"}
                     </Button>
                 </div>
-            )}
-
-            {actionFeedback && (
-                <p role={actionFeedback.role} className={`rounded-md border p-3 text-sm ${actionFeedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
-                    {actionFeedback.message}
-                </p>
             )}
 
             {loading && (

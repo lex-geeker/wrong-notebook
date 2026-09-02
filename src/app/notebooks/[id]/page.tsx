@@ -13,16 +13,17 @@ import { Notebook } from "@/types/api";
 import { apiClient } from "@/lib/api-client";
 
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 // ... imports
 
 export default function NotebookDetailPage() {
     const params = useParams();
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [notebook, setNotebook] = useState<Notebook | null>(null);
     const [loading, setLoading] = useState(true);
     const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-    const [loadError, setLoadError] = useState("");
 
     const fetchNotebook = useCallback(async (id: string) => {
         try {
@@ -30,11 +31,11 @@ export default function NotebookDetailPage() {
             setNotebook(data);
         } catch (error) {
             console.error("Failed to fetch notebook:", error);
-            setLoadError(t.notebooks?.notFound || "Notebook not found");
+            showToast(t.notebooks?.notFound || "Notebook not found", "error");
         } finally {
             setLoading(false);
         }
-    }, [t.notebooks?.notFound]);
+    }, [showToast, t.notebooks?.notFound]);
 
     useEffect(() => {
         if (params.id) {
@@ -46,6 +47,7 @@ export default function NotebookDetailPage() {
         if (!notebook) return;
         const updated = await apiClient.put<Notebook>(`/api/notebooks/${notebook.id}`, { name });
         setNotebook(updated);
+        showToast(t.common.messages?.saveSuccess || "Notebook renamed", "success");
     };
 
     if (loading) {
@@ -60,7 +62,6 @@ export default function NotebookDetailPage() {
         <main className="min-h-screen p-8 bg-background">
             <div className="mx-auto max-w-2xl space-y-4">
                 <BackButton fallbackUrl="/notebooks" />
-                <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{loadError}</p>
             </div>
         </main>
     );

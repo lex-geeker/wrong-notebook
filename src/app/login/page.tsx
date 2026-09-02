@@ -8,19 +8,24 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 export default function LoginPage() {
     const router = useRouter();
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
+        if (!e.currentTarget.checkValidity()) {
+            e.currentTarget.querySelector<HTMLElement>(":invalid")?.focus();
+            showToast(t.auth?.invalidFields || "Please check the required fields and formats", "error");
+            return;
+        }
         setLoading(true);
-        setError("");
 
         try {
             const result = await signIn("credentials", {
@@ -30,13 +35,13 @@ export default function LoginPage() {
             });
 
             if (result?.error) {
-                setError(t.auth?.login?.failed || 'Login failed');
+                showToast(t.auth?.login?.failed || 'Login failed', "error");
             } else {
                 router.push("/");
                 router.refresh();
             }
         } catch {
-            setError(t.auth?.login?.error || 'An error occurred');
+            showToast(t.auth?.login?.error || 'An error occurred', "error");
         } finally {
             setLoading(false);
         }
@@ -51,7 +56,7 @@ export default function LoginPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                         <div className="space-y-2">
                             <label htmlFor="email" className="text-sm font-medium">
                                 {t.auth?.email || 'Email'}
@@ -78,9 +83,6 @@ export default function LoginPage() {
                                 required
                             />
                         </div>
-                        {error && (
-                            <div className="text-red-500 text-sm text-center">{error}</div>
-                        )}
                         <Button type="submit" className="w-full" disabled={loading}>
                             {loading
                                 ? (t.auth?.login?.loggingIn || 'Logging in...')

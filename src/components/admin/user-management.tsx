@@ -19,15 +19,16 @@ import { Trash2, Ban, CheckCircle, Loader2 } from "lucide-react";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { AdminUser, AppConfig } from "@/types/api";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 
 export function UserManagement() {
     const { data: session } = useSession();
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [allowRegistration, setAllowRegistration] = useState(true);
     const [savingRegistration, setSavingRegistration] = useState(false);
-    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const fetchConfig = useCallback(async () => {
         try {
@@ -35,19 +36,19 @@ export function UserManagement() {
             setAllowRegistration(data.allowRegistration !== false);
         } catch (error) {
             console.error("Failed to fetch config", error);
-            setFeedback({ role: "alert", message: t.common.error });
+            showToast(t.common.error, "error");
         }
-    }, [t.common.error]);
+    }, [showToast, t.common.error]);
 
     const handleToggleRegistration = async (checked: boolean) => {
         setSavingRegistration(true);
         try {
             await apiClient.post("/api/settings", { allowRegistration: checked });
             setAllowRegistration(checked);
-            setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Saved successfully" });
+            showToast(t.common.messages?.saveSuccess || "Saved successfully", "success");
         } catch (error) {
             console.error("Failed to update registration setting", error);
-            setFeedback({ role: "alert", message: t.common.error });
+            showToast(t.common.error, "error");
         } finally {
             setSavingRegistration(false);
         }
@@ -60,11 +61,11 @@ export function UserManagement() {
             setUsers(data);
         } catch (error) {
             console.error("Failed to fetch users", error);
-            setFeedback({ role: "alert", message: t.common.error });
+            showToast(t.common.error, "error");
         } finally {
             setLoading(false);
         }
-    }, [t.common.error]);
+    }, [showToast, t.common.error]);
 
     useEffect(() => {
         fetchUsers();
@@ -75,10 +76,10 @@ export function UserManagement() {
         try {
             await apiClient.patch(`/api/admin/users/${user.id}`, { isActive: !user.isActive });
             await fetchUsers();
-            setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Saved successfully" });
+            showToast(t.common.messages?.saveSuccess || "Saved successfully", "success");
         } catch (error) {
             console.error("Failed to update user status", error);
-            setFeedback({ role: "alert", message: t.common.error });
+            showToast(t.common.error, "error");
         }
     };
 
@@ -86,12 +87,12 @@ export function UserManagement() {
         try {
             await apiClient.delete(`/api/admin/users/${user.id}`);
             await fetchUsers();
-            setFeedback({ role: "status", message: t.common.messages?.deleteSuccess || "Deleted successfully" });
+            showToast(t.common.messages?.deleteSuccess || "Deleted successfully", "success");
         } catch (error: unknown) {
             console.error("Failed to delete user", error);
             const data = error instanceof ApiError ? error.data : null;
             const text = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : t.common.error;
-            setFeedback({ role: "alert", message: text });
+            showToast(text, "error");
         }
     };
 
@@ -101,11 +102,6 @@ export function UserManagement() {
 
     return (
         <div className="space-y-4">
-            {feedback && (
-                <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
-                    {feedback.message}
-                </p>
-            )}
             {/* 注册开关 */}
             <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
                 <div className="space-y-0.5">

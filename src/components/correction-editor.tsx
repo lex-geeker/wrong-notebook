@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Save, RefreshCw, Loader2, Box } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { TagInput } from "@/components/tag-input";
 import { NotebookSelector } from "@/components/notebook-selector";
@@ -68,11 +69,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
         source: "homework",
     });
     const { t, language } = useLanguage();
+    const { showToast } = useToast();
     const [isReanswering, setIsReanswering] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isAnalyzingGeogebra, setIsAnalyzingGeogebra] = useState(false);
-    const [geogebraError, setGeogebraError] = useState<string | null>(null);
-    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
     // Fetch user info and calculate grade on mount
@@ -91,12 +91,11 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     // 重新解题函数
     const handleReanswer = async () => {
         if (!data.questionText.trim()) {
-            setFeedback({ role: "alert", message: t.editor.enterQuestionFirst || 'Please enter question text first' });
+            showToast(t.editor.enterQuestionFirst || 'Please enter question text first', "error");
             return;
         }
 
         setIsReanswering(true);
-        setFeedback(null);
         try {
             const requestBody = {
                 questionText: data.questionText,
@@ -129,7 +128,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 ),
             }));
 
-            setFeedback({ role: "status", message: t.editor.reanswerSuccess || 'Answer and analysis updated!' });
+            showToast(t.editor.reanswerSuccess || 'Answer and analysis updated!', "success");
         } catch (error: unknown) {
             console.error("Reanswer failed:", error);
             const apiError = error as { data?: { message?: string } };
@@ -146,7 +145,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 errorText = reanswerErrors.responseError || t.errors?.AI_RESPONSE_ERROR || errorText;
             }
 
-            setFeedback({ role: "alert", message: errorText });
+            showToast(errorText, "error");
 
         } finally {
             setIsReanswering(false);
@@ -155,16 +154,15 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
 
     const handleAnalyzeGeogebra = async () => {
         if (!data.questionText.trim()) {
-            setFeedback({ role: "alert", message: t.editor.enterQuestionFirst || '请先输入题目文本' });
+            showToast(t.editor.enterQuestionFirst || '请先输入题目文本', "error");
             return;
         }
         if (!data.answerText.trim()) {
-            setFeedback({ role: "alert", message: '请先生成或输入答案' });
+            showToast('请先生成或输入答案', "error");
             return;
         }
 
         setIsAnalyzingGeogebra(true);
-        setGeogebraError(null);
         try {
             const response = await fetch("/api/geogebra-analyze", {
                 method: "POST",
@@ -187,11 +185,11 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     geogebraCommands: JSON.stringify(result.commands),
                 }));
             } else {
-                setGeogebraError(result.description || "该题目不适合用 GeoGebra 演示");
+                showToast(result.description || "该题目不适合用 GeoGebra 演示", "info");
             }
         } catch (error: unknown) {
             console.error("GeoGebra analysis failed:", error);
-            setGeogebraError("分析失败，请稍后重试");
+            showToast("分析失败，请稍后重试", "error");
         } finally {
             setIsAnalyzingGeogebra(false);
         }
@@ -209,7 +207,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     <Button
                         onClick={async () => {
                             if (!data.subjectId) {
-                                setFeedback({ role: "alert", message: t.editor.messages?.selectNotebook || "Please select a notebook" });
+                                showToast(t.editor.messages?.selectNotebook || "Please select a notebook", "error");
                                 return;
                             }
                             if (isSaving) return; // 防止重复点击
@@ -237,11 +235,6 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     </Button>
                 </div>
             </div>
-            {feedback && (
-                <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
-                    {feedback.message}
-                </p>
-            )}
 
             <div className="grid gap-6 lg:grid-cols-2">
                 {/* 左侧：编辑区 */}
@@ -471,9 +464,6 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                     )}
                                 </Button>
                             </div>
-                            {geogebraError && (
-                                <p className="text-xs text-muted-foreground mt-2">{geogebraError}</p>
-                            )}
                             <p className="text-xs text-muted-foreground mt-2">
                                 AI 将判断本题是否可以用 GeoGebra 进行动态演示
                             </p>

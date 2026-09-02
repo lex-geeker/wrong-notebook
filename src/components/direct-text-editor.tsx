@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import type { MistakeStatus } from "@/lib/mistake-status";
 import type { Notebook } from "@/types/api";
+import { useToast } from "@/components/ui/toast";
 import {
     ERROR_SOURCES,
     ERROR_SOURCE_LABELS,
@@ -46,6 +47,7 @@ interface DirectTextEditorProps {
 
 export function DirectTextEditor({ onSubmit, defaultNotebookId, notebooks, isSaving }: DirectTextEditorProps) {
     const { t, language } = useLanguage();
+    const { showToast } = useToast();
     const [previewField, setPreviewField] = useState<string | null>(null);
 
     const [questionText, setQuestionText] = useState("");
@@ -60,16 +62,14 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, notebooks, isSav
     const [paperLevel, setPaperLevel] = useState("a");
     const [source, setSource] = useState<ErrorSource>("homework");
     const [errorType, setErrorType] = useState<ErrorType | undefined>();
-    const [validationError, setValidationError] = useState("");
     const selectedNotebookName = notebooks.find(notebook => notebook.id === subjectId)?.name;
 
     const handleSubmit = async () => {
         if (!questionText.trim()) return;
         if (!subjectId) {
-            setValidationError(t.editor.messages?.selectNotebook || "请选择错题本");
+            showToast(t.editor.messages?.selectNotebook || "请选择错题本", "error");
             return;
         }
-        setValidationError("");
 
         await onSubmit({
             questionText: questionText.trim(),
@@ -177,8 +177,6 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, notebooks, isSav
                     </Button>
                 </div>
 
-                {validationError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{validationError}</p>}
-
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                         <Label>{language === "zh" ? "错题来源" : "Source"}</Label>
@@ -207,10 +205,7 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, notebooks, isSav
                         <Label>{t.editor?.selectNotebook || "选择错题本"} *</Label>
                         <NotebookSelector
                             value={subjectId}
-                            onChange={(id) => {
-                                setSubjectId(id);
-                                setValidationError("");
-                            }}
+                            onChange={setSubjectId}
                             notebooks={notebooks}
                         />
                     </div>

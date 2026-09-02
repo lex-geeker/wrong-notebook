@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Loader2, Maximize2, Minimize2, RotateCcw, RefreshCw } from "lucide-react";
 
 interface GeogebraDemoProps {
@@ -162,6 +163,7 @@ export function GeogebraDemo({
     className = "",
     onRegenerate,
 }: GeogebraDemoProps) {
+    const { showToast } = useToast();
     // This ref points to a div that React NEVER puts children into.
     // All GeoGebra DOM is injected via innerHTML in the effect, so
     // React's reconciler never touches the inside of this node.
@@ -170,7 +172,7 @@ export function GeogebraDemo({
     const idRef = useRef(`ggb-${crypto.randomUUID()}`);
 
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
     const [expanded, setExpanded] = useState(true);
     const [regenerating, setRegenerating] = useState(false);
 
@@ -187,7 +189,7 @@ export function GeogebraDemo({
         loadGeoGebraScript().then(() => {
             if (dead) return;
             const GGBApplet = window.GGBApplet;
-            if (!GGBApplet) { setError("GeoGebra 未正确加载"); setLoading(false); return; }
+            if (!GGBApplet) { showToast("GeoGebra 未正确加载", "error"); setFailed(true); setLoading(false); return; }
 
             // Write the inject target directly — React never reconciles this.
             host.innerHTML = `<div id="${id}" style="width:100%;height:${height}px"></div>`;
@@ -221,11 +223,11 @@ export function GeogebraDemo({
                 applet.inject(id);
             } catch (e) {
                 console.error("[GGB] Init failed:", e);
-                if (!dead) { setError("GeoGebra 初始化失败"); setLoading(false); }
+                if (!dead) { showToast("GeoGebra 初始化失败", "error"); setFailed(true); setLoading(false); }
             }
         }).catch((e) => {
             console.error("[GGB] Script load failed:", e);
-            if (!dead) { setError("无法加载 GeoGebra 组件"); setLoading(false); }
+            if (!dead) { showToast("无法加载 GeoGebra 组件", "error"); setFailed(true); setLoading(false); }
         });
 
         return () => {
@@ -322,7 +324,7 @@ export function GeogebraDemo({
              * The effect writes innerHTML directly, so React never
              * tries to reconcile DOM nodes inside this div.
              */}
-            <div ref={ggbHostRef} style={{ width: '100%' }} />
+            <div ref={ggbHostRef} style={{ width: '100%', minHeight: failed ? height : undefined }} />
 
             {/* Loading overlay — sibling, not child of ggbHost */}
             {loading && (
@@ -337,15 +339,6 @@ export function GeogebraDemo({
                 </div>
             )}
 
-            {/* Error */}
-            {error && (
-                <div
-                    className="flex items-center justify-center text-sm text-destructive"
-                    style={{ minHeight: height }}
-                >
-                    {error}
-                </div>
-            )}
         </div>
     );
 }

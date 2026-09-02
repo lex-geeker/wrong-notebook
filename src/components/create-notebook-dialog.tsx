@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 interface CreateNotebookDialogProps {
     open: boolean;
@@ -24,34 +25,30 @@ interface CreateNotebookDialogProps {
 export function CreateNotebookDialog({ open, onOpenChange, onCreate }: CreateNotebookDialogProps) {
     const [name, setName] = useState("");
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
     const { t } = useLanguage();
+    const { showToast } = useToast();
 
     const handleCreate = async () => {
         if (!name.trim()) {
-            setError(t.notebooks?.dialog?.enterName || "Please enter notebook name");
+            showToast(t.notebooks?.dialog?.enterName || "Please enter notebook name", "error");
             return;
         }
 
         setLoading(true);
-        setError("");
         try {
             await onCreate(name.trim());
             setName("");
             onOpenChange(false);
         } catch (error) {
             console.error(error);
-            setError(error instanceof Error ? error.message : t.common.error);
+            showToast(error instanceof Error ? error.message : t.common.error, "error");
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={(nextOpen) => {
-            onOpenChange(nextOpen);
-            if (!nextOpen) setError("");
-        }}>
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>{t.notebooks?.dialog?.title || "Create New Notebook"}</DialogTitle>
@@ -70,7 +67,6 @@ export function CreateNotebookDialog({ open, onOpenChange, onCreate }: CreateNot
                             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                         />
                     </div>
-                    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>

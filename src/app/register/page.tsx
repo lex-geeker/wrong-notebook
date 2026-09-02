@@ -10,17 +10,18 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { RegisterRequest } from "@/types/api";
+import { useToast } from "@/components/ui/toast";
 
 export default function RegisterPage() {
     const router = useRouter();
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [educationStage, setEducationStage] = useState("junior_high");
     const [enrollmentYear, setEnrollmentYear] = useState("2025");
-    const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -41,14 +42,18 @@ export default function RegisterPage() {
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
+        if (!e.currentTarget.checkValidity()) {
+            e.currentTarget.querySelector<HTMLElement>(":invalid")?.focus();
+            showToast(t.auth?.invalidFields || "Please check the required fields and formats", "error");
+            return;
+        }
         setLoading(true);
-        setError("");
 
         // 验证两次密码是否一致
         if (password !== confirmPassword) {
-            setError(t.auth?.register?.passwordMismatch || 'Passwords do not match');
+            showToast(t.auth?.register?.passwordMismatch || 'Passwords do not match', "error");
             setLoading(false);
             return;
         }
@@ -62,6 +67,7 @@ export default function RegisterPage() {
                 enrollmentYear: parseInt(enrollmentYear)
             });
 
+            showToast(t.auth?.register?.success || "Registration successful! Please login", "success");
             router.push("/login");
         } catch (error: unknown) {
             const data = error instanceof ApiError ? error.data : null;
@@ -71,7 +77,7 @@ export default function RegisterPage() {
             } else {
                 errorMsg = errorMsg || (t.auth?.register?.failed || 'Registration failed');
             }
-            setError(errorMsg);
+            showToast(errorMsg, "error");
         } finally {
             setLoading(false);
         }
@@ -123,7 +129,7 @@ export default function RegisterPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
                         <div className="space-y-2">
                             <label htmlFor="name" className="text-sm font-medium">
                                 {t.auth?.name || 'Name'}
@@ -247,9 +253,6 @@ export default function RegisterPage() {
                                 max={new Date().getFullYear()}
                             />
                         </div>
-                        {error && (
-                            <div className="text-red-500 text-sm text-center">{error}</div>
-                        )}
                         <Button type="submit" className="w-full" disabled={loading}>
                             {loading
                                 ? (t.auth?.register?.registering || 'Registering...')

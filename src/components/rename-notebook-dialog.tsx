@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 interface RenameNotebookDialogProps {
     open: boolean;
@@ -25,8 +26,8 @@ interface RenameNotebookDialogProps {
 export function RenameNotebookDialog({ open, onOpenChange, currentName, onRename }: RenameNotebookDialogProps) {
     const [name, setName] = useState(currentName);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
     const { t } = useLanguage();
+    const { showToast } = useToast();
 
     useEffect(() => {
         setName(currentName);
@@ -34,28 +35,24 @@ export function RenameNotebookDialog({ open, onOpenChange, currentName, onRename
 
     const handleRename = async () => {
         if (!name.trim()) {
-            setError(t.notebooks?.renameDialog?.enterName || "Please enter notebook name");
+            showToast(t.notebooks?.renameDialog?.enterName || "Please enter notebook name", "error");
             return;
         }
 
         setLoading(true);
-        setError("");
         try {
             await onRename(name.trim());
             onOpenChange(false);
         } catch (error) {
             console.error(error);
-            setError(error instanceof Error ? error.message : t.common.error);
+            showToast(error instanceof Error ? error.message : t.common.error, "error");
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={(nextOpen) => {
-            onOpenChange(nextOpen);
-            if (!nextOpen) setError("");
-        }}>
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>{t.notebooks?.renameDialog?.title || "Rename Notebook"}</DialogTitle>
@@ -74,7 +71,6 @@ export function RenameNotebookDialog({ open, onOpenChange, currentName, onRename
                             onKeyDown={(e) => e.key === "Enter" && handleRename()}
                         />
                     </div>
-                    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>

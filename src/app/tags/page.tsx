@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiClient, ApiError } from "@/lib/api-client";
 import { TagStats, TagStatsResponse } from "@/types/api";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 
 // 标签树节点类型
 interface TagTreeNode {
@@ -41,6 +42,7 @@ type SubjectKey = typeof SUBJECTS[number]['key'];
 
 export default function TagsPage() {
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const subjectLabel = (key: SubjectKey, fallback: string) => t.tags?.subjects?.[key] || fallback;
     const [stats, setStats] = useState<TagStats[]>([]);
     const [loading, setLoading] = useState(true);
@@ -67,7 +69,6 @@ export default function TagsPage() {
     const [gradeOptions, setGradeOptions] = useState<Array<{ id: string; name: string }>>([]);
     const [newTagName, setNewTagName] = useState("");
     const [submitting, setSubmitting] = useState(false);
-    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     // 展开状态
     const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
@@ -140,12 +141,11 @@ export default function TagsPage() {
     // 添加自定义标签
     const handleAddCustomTag = async () => {
         if (!newTagName.trim()) {
-            setFeedback({ role: "alert", message: t.tags?.custom?.enterName || "Please enter tag name" });
+            showToast(t.tags?.custom?.enterName || "Please enter tag name", "error");
             return;
         }
 
         setSubmitting(true);
-        setFeedback(null);
         try {
             await apiClient.post('/api/tags', {
                 name: newTagName.trim(),
@@ -156,12 +156,12 @@ export default function TagsPage() {
             // 刷新
             await fetchCustomTags();
             await fetchTags(newTagSubject);
-            setFeedback({ role: "status", message: t.tags?.custom?.success || "Tag added successfully!" });
+            showToast(t.tags?.custom?.success || "Tag added successfully!", "success");
         } catch (error: unknown) {
             if (error instanceof ApiError && error.status === 409) {
-                setFeedback({ role: "alert", message: t.tags?.custom?.exists || "Tag already exists" });
+                showToast(t.tags?.custom?.exists || "Tag already exists", "error");
             } else {
-                setFeedback({ role: "alert", message: "Failed to add tag" });
+                showToast("Failed to add tag", "error");
             }
         } finally {
             setSubmitting(false);
@@ -174,10 +174,10 @@ export default function TagsPage() {
             await apiClient.delete(`/api/tags?id=${tagId}`);
             await fetchCustomTags();
             await fetchTags(subject);
-            setFeedback({ role: "status", message: t.common.messages?.deleteSuccess || "Tag deleted" });
+            showToast(t.common.messages?.deleteSuccess || "Tag deleted", "success");
         } catch (error) {
             console.error("Failed to delete tag:", error);
-            setFeedback({ role: "alert", message: t.common.messages?.deleteFailed || "Failed to delete tag" });
+            showToast(t.common.messages?.deleteFailed || "Failed to delete tag", "error");
         }
     };
 
@@ -474,12 +474,6 @@ export default function TagsPage() {
                     </Link>
                 </div>
             </div>
-
-            {feedback && (
-                <p role={feedback.role} className={`mb-6 rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
-                    {feedback.message}
-                </p>
-            )}
 
             <Tabs defaultValue="standard" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 mb-6">

@@ -14,17 +14,18 @@ import { Notebook } from "@/types/api";
 import { apiClient, ApiError } from "@/lib/api-client";
 
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 // ... imports
 
 export default function NotebooksPage() {
     const router = useRouter();
     const { t } = useLanguage(); // Use hook
+    const { showToast } = useToast();
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [renameTarget, setRenameTarget] = useState<Notebook | null>(null);
-    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const fetchNotebooks = useCallback(async () => {
         try {
@@ -32,11 +33,11 @@ export default function NotebooksPage() {
             setNotebooks(data);
         } catch (error) {
             console.error("Failed to fetch notebooks:", error);
-            setFeedback({ role: "alert", message: t.common.messages?.loadFailed || "Failed to load notebooks" });
+            showToast(t.common.messages?.loadFailed || "Failed to load notebooks", "error");
         } finally {
             setLoading(false);
         }
-    }, [t.common.messages?.loadFailed]);
+    }, [showToast, t.common.messages?.loadFailed]);
 
     useEffect(() => {
         fetchNotebooks();
@@ -46,7 +47,7 @@ export default function NotebooksPage() {
         try {
             await apiClient.post("/api/notebooks", { name });
             await fetchNotebooks();
-            setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Notebook created" });
+            showToast(t.common.messages?.saveSuccess || "Notebook created", "success");
         } catch (error: unknown) {
             console.error(error);
             const data = error instanceof ApiError ? error.data : null;
@@ -61,24 +62,24 @@ export default function NotebooksPage() {
         await apiClient.put(`/api/notebooks/${renameTarget.id}`, { name });
         setRenameTarget(null);
         await fetchNotebooks();
-        setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Notebook renamed" });
+        showToast(t.common.messages?.saveSuccess || "Notebook renamed", "success");
     };
 
     const handleDelete = async (id: string, errorCount: number) => {
         if (errorCount > 0) {
-            setFeedback({ role: "alert", message: t.notebooks?.deleteNotEmpty || "Please clear all items in this notebook first." });
+            showToast(t.notebooks?.deleteNotEmpty || "Please clear all items in this notebook first.", "error");
             return;
         }
         try {
             await apiClient.delete(`/api/notebooks/${id}`);
             await fetchNotebooks();
-            setFeedback({ role: "status", message: t.common.messages?.deleteSuccess || "Notebook deleted" });
+            showToast(t.common.messages?.deleteSuccess || "Notebook deleted", "success");
         } catch (error: unknown) {
             console.error(error);
             const data = error instanceof ApiError ? error.data : null;
             const message = data && typeof data === "object" && "message" in data && typeof data.message === "string"
                 ? data.message : t.notebooks?.deleteError || "Failed to delete";
-            setFeedback({ role: "alert", message });
+            showToast(message, "error");
         }
     };
 
@@ -120,12 +121,6 @@ export default function NotebooksPage() {
                         </Link>
                     </div>
                 </div>
-
-                {feedback && (
-                    <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
-                        {feedback.message}
-                    </p>
-                )}
 
                 {notebooks.length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed rounded-lg">

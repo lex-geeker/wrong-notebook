@@ -21,6 +21,7 @@ import {
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,6 +67,7 @@ function PracticeContent() {
     const paperSessionId = searchParams.get("sessionId") || undefined;
     const paperMode = searchParams.get("paper") === "1" && Boolean(paperSessionId);
     const { t, language } = useLanguage();
+    const { showToast } = useToast();
     const copy = t.practice.batch;
 
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -82,7 +84,6 @@ function PracticeContent() {
     const [showReview, setShowReview] = useState(false);
     const [paperResults, setPaperResults] = useState<Record<string, PaperResult>>({});
     const [paperSaved, setPaperSaved] = useState(false);
-    const [error, setError] = useState("");
 
     const refreshHistory = () => apiClient.get<PracticeSessionSummary[]>("/api/practice/sessions")
         .then(setHistory)
@@ -102,11 +103,11 @@ function PracticeContent() {
                         .map((item) => [item.id, { isCorrect: item.answer!.isCorrect! }] as const)));
                     setPaperSaved(Boolean(data.endedAt));
                 })
-                .catch((cause: unknown) => setError(apiMessage(cause, language === "zh" ? "无法加载纸上练习。" : "Could not load paper practice.")))
+                .catch((cause: unknown) => showToast(apiMessage(cause, language === "zh" ? "无法加载纸上练习。" : "Could not load paper practice."), "error"))
                 .finally(() => setLoading(false)));
         }
         Promise.all(requests).catch(() => undefined);
-    }, [language, paperMode, paperSessionId]);
+    }, [language, paperMode, paperSessionId, showToast]);
 
     const currentItem = session?.items[activeIndex];
     const finished = Boolean(session && session.answeredCount === session.itemCount);
@@ -124,7 +125,6 @@ function PracticeContent() {
 
     async function startPractice() {
         setLoading(true);
-        setError("");
         try {
             const data = await apiClient.post<PracticeSessionData>("/api/practice/sessions", {
                 mode,
@@ -142,7 +142,8 @@ function PracticeContent() {
             setAnswers({});
             setShowReview(false);
         } catch (cause: unknown) {
-            setError(hasErrorReason(cause, "NO_DUE_REVIEWS") ? copy.noDue : apiMessage(cause, copy.createError));
+            const noDue = hasErrorReason(cause, "NO_DUE_REVIEWS");
+            showToast(noDue ? copy.noDue : apiMessage(cause, copy.createError), noDue ? "info" : "error");
         } finally {
             setLoading(false);
         }
@@ -150,7 +151,6 @@ function PracticeContent() {
 
     async function openSession(id: string, includeAnswers = false) {
         setLoading(true);
-        setError("");
         try {
             const data = await apiClient.get<PracticeSessionData>(`/api/practice/sessions/${id}${includeAnswers ? "?includeAnswers=1" : ""}`);
             setSession(data);
@@ -164,7 +164,7 @@ function PracticeContent() {
             setActiveIndex(next < 0 ? 0 : next);
             setShowReview(false);
         } catch (cause: unknown) {
-            setError(apiMessage(cause, copy.loadError));
+            showToast(apiMessage(cause, copy.loadError), "error");
         } finally {
             setLoading(false);
         }
@@ -173,7 +173,6 @@ function PracticeContent() {
     async function savePaperResults() {
         if (!session || !session.items.every((item) => typeof paperResults[item.id]?.isCorrect === "boolean")) return;
         setSubmitting(true);
-        setError("");
         try {
             const data = await apiClient.patch<PracticeSessionData>(`/api/practice/sessions/${session.id}`, {
                 paperResults: session.items.map((item) => ({ itemId: item.id, ...paperResults[item.id] })),
@@ -182,7 +181,7 @@ function PracticeContent() {
             setPaperSaved(true);
             refreshHistory();
         } catch (cause: unknown) {
-            setError(apiMessage(cause, copy.paperSaveError));
+            showToast(apiMessage(cause, copy.paperSaveError), "error");
         } finally {
             setSubmitting(false);
         }
@@ -191,7 +190,6 @@ function PracticeContent() {
     async function submitAnswer() {
         if (!session || !currentItem || !currentAnswer.trim() || currentItem.answer) return;
         setSubmitting(true);
-        setError("");
         try {
             const result = await apiClient.post<AnswerResponse>(
                 `/api/practice/sessions/${session.id}/answer`,
@@ -209,7 +207,7 @@ function PracticeContent() {
             }));
             if (result.endedAt) refreshHistory();
         } catch (cause: unknown) {
-            setError(apiMessage(cause, copy.submitError));
+            showToast(apiMessage(cause, copy.submitError), "error");
         } finally {
             setSubmitting(false);
         }
@@ -218,7 +216,6 @@ function PracticeContent() {
     async function assessAnswer(isCorrect: boolean) {
         if (!session || !currentItem || currentItem.answer?.isCorrect !== null) return;
         setSubmitting(true);
-        setError("");
         try {
             const result = await apiClient.post<AnswerResponse>(
                 `/api/practice/sessions/${session.id}/answer`,
@@ -235,7 +232,7 @@ function PracticeContent() {
             }));
             if (result.endedAt) refreshHistory();
         } catch (cause: unknown) {
-            setError(apiMessage(cause, copy.submitError));
+            showToast(apiMessage(cause, copy.submitError), "error");
         } finally {
             setSubmitting(false);
         }
@@ -244,7 +241,6 @@ function PracticeContent() {
     function leaveSession() {
         setSession(null);
         setShowReview(false);
-        setError("");
         refreshHistory();
     }
 
@@ -253,7 +249,7 @@ function PracticeContent() {
             <main className="flex min-h-screen items-center justify-center bg-background p-6">
                 {loading
                     ? <Loader2 className="h-7 w-7 animate-spin" />
-                    : <p className="text-sm text-destructive" role="alert">{error || copy.loadError}</p>}
+                    : <Link href="/"><Button><House className="mr-2 h-4 w-4" />{copy.backHome}</Button></Link>}
             </main>
         );
     }
@@ -340,7 +336,6 @@ function PracticeContent() {
 
                 <footer className="fixed inset-x-0 bottom-0 border-t bg-background/95 px-4 py-3 backdrop-blur">
                     <div className="mx-auto max-w-4xl">
-                        {error && <p className="mb-2 text-sm text-destructive" role="alert">{error}</p>}
                         <Button className="h-11 w-full" onClick={savePaperResults} disabled={!allMarked || submitting}>
                             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {submitting ? copy.submitting : copy.paperSave}
@@ -530,8 +525,6 @@ function PracticeContent() {
                         </Card>
                     )}
 
-                    {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-
                     <footer className="flex items-center justify-between border-t pt-5">
                         <Button variant="ghost" onClick={() => setActiveIndex((index) => index - 1)} disabled={activeIndex === 0}>
                             <ChevronLeft className="mr-1 h-4 w-4" />{copy.previous}
@@ -638,7 +631,6 @@ function PracticeContent() {
                                 </div>
                             )}
 
-                            {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
                             <Button size="lg" className="h-12 w-full" onClick={startPractice} disabled={loading}>
                                 {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />}
                                 {loading ? copy.starting : copy.start}

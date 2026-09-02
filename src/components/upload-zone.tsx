@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UploadCloud, Loader2, Monitor } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 interface CaptureControllerLike {
     setFocusBehavior(behavior: 'no-focus-change' | 'focus-capturing-application'): void;
@@ -29,9 +30,9 @@ interface UploadZoneProps {
 
 export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [isScreenshotting, setIsScreenshotting] = useState(false);
     const [isClient, setIsClient] = useState(false);
-    const [screenshotError, setScreenshotError] = useState("");
     // 确保只在客户端渲染屏幕截图功能
     useEffect(() => {
         setIsClient(true);
@@ -66,12 +67,11 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
     // 屏幕截图功能
     const handleScreenshot = async () => {
         if (!isScreenshotSupported()) {
-            setScreenshotError(t.upload.screenshotNotSupported);
+            showToast(t.upload.screenshotNotSupported, "error");
             return;
         }
 
         setIsScreenshotting(true);
-        setScreenshotError("");
         let stream: MediaStream | undefined;
 
         try {
@@ -158,9 +158,9 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
             console.error('Screenshot failed:', error);
             if (error instanceof Error) {
                 if (error.name === 'NotAllowedError') {
-                    setScreenshotError(t.upload.screenshotPermissionDenied);
+                    showToast(t.upload.screenshotPermissionDenied, "error");
                 } else {
-                    setScreenshotError(`${t.upload.screenshotFailed}: ${error.message}`);
+                    showToast(`${t.upload.screenshotFailed}: ${error.message}`, "error");
                 }
             }
         } finally {
@@ -218,7 +218,6 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
                     </p>
                 </div>
             )}
-            {screenshotError && <p role="alert" className="text-center text-sm text-destructive">{screenshotError}</p>}
         </div>
     );
 }

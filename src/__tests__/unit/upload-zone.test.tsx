@@ -12,6 +12,7 @@ vi.mock("react-dropzone", () => ({
 
 vi.mock("@/contexts/LanguageContext", () => ({
     useLanguage: () => ({
+        language: "en",
         t: {
             app: { analyzing: "Analyzing", dragDrop: "Drop" },
             common: { pleaseWait: "Wait" },
@@ -29,6 +30,7 @@ vi.mock("@/contexts/LanguageContext", () => ({
 }));
 
 import { UploadZone } from "@/components/upload-zone";
+import { ToastProvider } from "@/components/ui/toast";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,7 +54,9 @@ describe("UploadZone screenshot cleanup", () => {
                 }),
             },
         });
-        await act(async () => root.render(<UploadZone onImageSelect={vi.fn()} isAnalyzing={false} />));
+        await act(async () => root.render(
+            <ToastProvider><UploadZone onImageSelect={vi.fn()} isAnalyzing={false} /></ToastProvider>,
+        ));
     });
 
     afterEach(async () => {

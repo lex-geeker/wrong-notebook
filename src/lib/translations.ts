@@ -634,6 +634,7 @@ export const translations = {
             },
         },
         auth: {
+            invalidFields: "Please check the required fields and formats",
             email: "Email",
             password: "Password",
             confirmPassword: "Confirm Password",
@@ -1348,6 +1349,7 @@ export const translations = {
             },
         },
         auth: {
+            invalidFields: "请检查必填项和输入格式",
             email: "邮箱",
             password: "密码",
             confirmPassword: "确认密码",

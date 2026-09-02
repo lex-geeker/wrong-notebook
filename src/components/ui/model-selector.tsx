@@ -15,6 +15,7 @@ import { RefreshCw, Loader2 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { AIModel, ModelsResponse } from "@/types/api";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/components/ui/toast";
 
 interface ModelSelectorProps {
     provider: 'openai' | 'gemini';
@@ -26,9 +27,9 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModelChange }: ModelSelectorProps) {
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [models, setModels] = useState<AIModel[]>([]);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const [customModel, setCustomModel] = useState(currentModel || '');
     const [useCustom, setUseCustom] = useState(false);
 
@@ -39,12 +40,11 @@ export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModel
 
     const fetchModels = async () => {
         if (!apiKey) {
-            setError(t.modelSelector?.enterApiKeyFirst || "Please enter API Key first");
+            showToast(t.modelSelector?.enterApiKeyFirst || "Please enter API Key first", "error");
             return;
         }
 
         setLoading(true);
-        setError(null);
 
         try {
             const data = await apiClient.post<ModelsResponse>('/api/ai/models', {
@@ -55,7 +55,7 @@ export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModel
 
             // Check if there's an error message in the response
             if ('error' in data && typeof data.error === 'string') {
-                setError(data.error);
+                showToast(data.error, "error");
                 setUseCustom(true);
                 setModels([]);
                 return;
@@ -64,13 +64,13 @@ export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModel
             setModels(data.models);
 
             if (data.models.length === 0) {
-                setError(t.modelSelector?.noVisionModel || "No vision model found, please enter manually");
+                showToast(t.modelSelector?.noVisionModel || "No vision model found, please enter manually", "info");
                 setUseCustom(true);
             }
         } catch (error: unknown) {
             console.error("Failed to fetch models:", error);
             const errorMsg = error instanceof Error ? error.message : (t.modelSelector?.fetchFailed || "Failed to fetch models");
-            setError(errorMsg + (t.modelSelector?.enterManually || ", please enter manually"));
+            showToast(errorMsg + (t.modelSelector?.enterManually || ", please enter manually"), "error");
             setUseCustom(true);
         } finally {
             setLoading(false);
@@ -110,10 +110,6 @@ export function ModelSelector({ provider, apiKey, baseUrl, currentModel, onModel
                     )}
                 </Button>
             </div>
-
-            {error && (
-                <p className="text-xs text-yellow-600">{error}</p>
-            )}
 
             {useCustom || models.length === 0 ? (
                 <div className="space-y-2">
