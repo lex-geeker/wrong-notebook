@@ -25,19 +25,12 @@ export async function GET(req: Request) {
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, parseInt(searchParams.get("pageSize") || String(DEFAULT_PAGE_SIZE), 10)));
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
 
         const whereClause: Prisma.ErrorItemWhereInput = {
-            userId: user.id,
+            userId: session.user.id,
         };
 
         if (subjectId) {

@@ -2,47 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { createLogger } from './logger';
+import type { AppConfig, OpenAIInstance } from '@/types/api';
+
+export type { AppConfig, OpenAIInstance } from '@/types/api';
+export { MAX_OPENAI_INSTANCES } from '@/types/api';
 
 const logger = createLogger('config');
 
 const CONFIG_FILE_PATH = path.join(process.cwd(), 'config', 'app-config.json');
-
-// OpenAI 实例配置
-export interface OpenAIInstance {
-    id: string;           // 唯一标识 (UUID)
-    name: string;         // 用户自定义名称
-    apiKey: string;
-    baseUrl: string;
-    model: string;
-}
-
-export interface AppConfig {
-    aiProvider: 'gemini' | 'openai' | 'azure';
-    allowRegistration?: boolean;
-    openai?: {
-        instances?: OpenAIInstance[];
-        activeInstanceId?: string;
-    };
-    gemini?: {
-        apiKey?: string;
-        baseUrl?: string;
-        model?: string;
-    };
-    azure?: {
-        apiKey?: string;
-        endpoint?: string;       // Azure 资源端点 (https://xxx.openai.azure.com)
-        deploymentName?: string; // 部署名称
-        apiVersion?: string;     // API 版本
-        model?: string;          // 显示用模型名
-    };
-    prompts?: {
-        analyze?: string;
-        similar?: string;
-    };
-    timeouts?: {
-        analyze?: number; // 毫秒
-    };
-}
 
 // 旧版 OpenAI 配置格式（用于迁移检测）
 interface LegacyOpenAIConfig {
@@ -189,7 +156,3 @@ export function getActiveOpenAIConfig(config: AppConfig = getAppConfig()): OpenA
 
     return instances.find(i => i.id === activeId);
 }
-
-// 最大实例数限制
-export const MAX_OPENAI_INSTANCES = 10;
-

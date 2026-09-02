@@ -8,6 +8,7 @@ import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
+import { ERROR_SOURCES, ERROR_TYPES } from "@/lib/error-metadata";
 
 const logger = createLogger('api:error-items:id');
 
@@ -19,14 +20,7 @@ export async function GET(
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
 
@@ -45,7 +39,7 @@ export async function GET(
         }
 
         // Ensure the user owns this item
-        if (errorItem.userId !== user.id) {
+        if (errorItem.userId !== session.user.id) {
             return forbidden("Not authorized to access this item");
         }
 
@@ -64,22 +58,16 @@ export async function PUT(
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
+        const userId = session.user.id;
 
         const body = await req.json();
-        const { knowledgePoints, gradeSemester, paperLevel, questionText, answerText, analysis, subjectId,  wrongAnswerText, mistakeAnalysis, mistakeStatus, geogebraCommands } = body;
+        const { knowledgePoints, gradeSemester, paperLevel, questionText, answerText, analysis, subjectId, wrongAnswerText, mistakeAnalysis, mistakeStatus, geogebraCommands, userNotes, masteryLevel, source, errorType } = body;
 
         const errorItem = await prisma.errorItem.findFirst({
-            where: { id, userId: user.id },
+            where: { id, userId },
             include: { subject: true },
         });
 
@@ -99,6 +87,14 @@ export async function PUT(
                 return badRequest('Invalid metadata field');
             }
         }
+        if (userNotes !== undefined && (typeof userNotes !== 'string' || userNotes.length > 20_000)) {
+            return badRequest('Invalid notes');
+        }
+        if (masteryLevel !== undefined && (!Number.isInteger(masteryLevel) || masteryLevel < 0 || masteryLevel > 2)) {
+            return badRequest('masteryLevel must be 0, 1, or 2');
+        }
+        if (source !== undefined && !ERROR_SOURCES.includes(source)) return badRequest('Invalid source');
+        if (errorType !== undefined && errorType !== null && !ERROR_TYPES.includes(errorType)) return badRequest('Invalid error type');
         if (gradeSemester !== undefined) updateData.gradeSemester = gradeSemester;
         if (paperLevel !== undefined) updateData.paperLevel = paperLevel;
         if (questionText !== undefined) updateData.questionText = questionText;
@@ -106,13 +102,17 @@ export async function PUT(
         if (analysis !== undefined) updateData.analysis = analysis;
         if (wrongAnswerText !== undefined) updateData.wrongAnswerText = wrongAnswerText || null;
         if (mistakeAnalysis !== undefined) updateData.mistakeAnalysis = mistakeAnalysis || null;
+        if (userNotes !== undefined) updateData.userNotes = userNotes;
+        if (masteryLevel !== undefined) updateData.masteryLevel = masteryLevel;
+        if (source !== undefined) updateData.source = source;
+        if (errorType !== undefined) updateData.errorType = errorType || null;
         let tagSubject = errorItem.subject;
         if (subjectId !== undefined) {
             if (subjectId === "") {
                 tagSubject = null;
                 updateData.subject = { disconnect: true };
             } else {
-                const targetSubject = await prisma.subject.findFirst({ where: { id: subjectId, userId: user.id } });
+                const targetSubject = await prisma.subject.findFirst({ where: { id: subjectId, userId } });
                 if (!targetSubject) return forbidden("Not authorized to move to this notebook");
                 tagSubject = targetSubject;
                 updateData.subject = { connect: { id: subjectId } };
@@ -155,7 +155,7 @@ export async function PUT(
                         parentId,
                         OR: [
                             { isSystem: true, userId: null },
-                            { isSystem: false, userId: user.id },
+                            { isSystem: false, userId },
                         ],
                     },
                 });
@@ -166,7 +166,7 @@ export async function PUT(
                             name: tagName,
                             subject: subjectKey,
                             isSystem: false,
-                            userId: user.id,
+                            userId,
                             parentId,
                         },
                     });
@@ -185,7 +185,7 @@ export async function PUT(
         logger.info({ id }, 'Updating error item');
 
         const updated = await prisma.errorItem.update({
-            where: { id, userId: user.id },
+            where: { id, userId },
             data: updateData,
             include: { tags: true },
         });
@@ -194,5 +194,33 @@ export async function PUT(
     } catch (error) {
         logger.error({ error }, 'Error updating item');
         return internalError("Failed to update error item");
+    }
+}
+
+export async function DELETE(
+    _req: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+        return unauthorized("Authentication required");
+    }
+
+    try {
+        const errorItem = await prisma.errorItem.findFirst({
+            where: { id, userId: session.user.id },
+        });
+        if (!errorItem) return notFound("Item not found");
+
+        await prisma.errorItem.delete({
+            where: { id, userId: session.user.id },
+        });
+
+        return NextResponse.json({ message: "Deleted successfully" });
+    } catch (error) {
+        logger.error({ error }, 'Error deleting item');
+        return internalError("Failed to delete error item");
     }
 }

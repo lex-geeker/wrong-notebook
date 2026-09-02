@@ -61,15 +61,9 @@ export async function POST(_request: Request) {
             // "All data, including user data". 
             // If I delete other users, I am truly resetting the system.
             // Let's protect the CURRENT user.
-            if (session.user?.email) {
-                await tx.user.deleteMany({
-                    where: {
-                        email: {
-                            not: session.user.email
-                        }
-                    }
-                });
-            }
+            await tx.user.deleteMany({
+                where: { id: { not: session.user.id } }
+            });
         });
 
         logger.info('System reset completed successfully');

@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { BarChart3, TrendingUp, Activity, House } from "lucide-react";
 import Link from "next/link";
+import { WeeklyReport } from "@/components/weekly-report";
 
 export default function StatsPage() {
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
 
     return (
         <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -33,6 +34,8 @@ export default function StatsPage() {
                     </Link>
                 </div>
             </div>
+
+            <WeeklyReport />
 
             <Tabs defaultValue="wrong" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-6">

@@ -54,6 +54,7 @@ interface ImportData {
         knowledgePoints?: string | null;
         source: string | null;
         errorType: string | null;
+        correctedAt: string | null;
         userNotes: string | null;
         masteryLevel: number;
         gradeSemester: string | null;
@@ -118,17 +119,11 @@ function parseLegacyTagNames(value: string | null | undefined): string[] {
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id || !session.user.email) {
         return unauthorized("Not authenticated");
     }
 
-    const user = await prisma.user.findUnique({
-        where: { email: session.user.email },
-    });
-
-    if (!user) {
-        return unauthorized("User not found");
-    }
+    const user = { id: session.user.id, email: session.user.email };
 
     const { searchParams } = new URL(req.url);
     const importAll = searchParams.get('all') === 'true';
@@ -147,7 +142,7 @@ export async function POST(req: Request) {
         const body = await req.json() as ImportData;
 
         // 验证数据格式
-        if (!body.version || !body.user || !Array.isArray(body.errorItems)) {
+        if (body.version < 3 || !body.user || !Array.isArray(body.errorItems)) {
             return badRequest("Invalid import data format");
         }
 
@@ -284,6 +279,7 @@ export async function POST(req: Request) {
                         mistakeStatus: item.mistakeStatus,
                         source: item.source,
                         errorType: item.errorType,
+                        correctedAt: safeParseDate(item.correctedAt),
                         userNotes: item.userNotes,
                         masteryLevel: safeMasteryLevel(item.masteryLevel),
                         gradeSemester: item.gradeSemester,

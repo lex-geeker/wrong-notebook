@@ -6,11 +6,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Use vi.hoisted to ensure mocks are initialized before module imports
 const mocks = vi.hoisted(() => ({
-    mockPrismaUser: {
-        findUnique: vi.fn(),
-        findFirst: vi.fn(),
-        create: vi.fn(),
-    },
     mockPrismaSubject: {
         findMany: vi.fn(),
         findUnique: vi.fn(),
@@ -20,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     },
     mockSession: {
         user: {
+            id: 'user-123',
             email: 'user@example.com',
             name: 'Test User',
         },
@@ -30,7 +26,6 @@ const mocks = vi.hoisted(() => ({
 // Mock Prisma client
 vi.mock('@/lib/prisma', () => ({
     prisma: {
-        user: mocks.mockPrismaUser,
         subject: mocks.mockPrismaSubject,
     },
 }));
@@ -50,16 +45,8 @@ import { GET as GET_NOTEBOOK, PUT, DELETE } from '@/app/api/notebooks/[id]/route
 import { getServerSession } from 'next-auth';
 
 describe('/api/notebooks', () => {
-    const mockUser = {
-        id: 'user-123',
-        email: 'user@example.com',
-        name: 'Test User',
-    };
-
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.mockPrismaUser.findUnique.mockResolvedValue(mockUser);
-        mocks.mockPrismaUser.findFirst.mockResolvedValue(mockUser);
         vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession);
     });
 

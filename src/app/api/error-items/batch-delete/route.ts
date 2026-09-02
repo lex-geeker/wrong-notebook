@@ -30,19 +30,12 @@ export async function POST(req: Request) {
             return badRequest("Cannot delete more than 100 items at once");
         }
 
-        // 验证用户身份
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
+        const userId = session.user.id;
 
-        logger.debug({ userId: user.id, idsCount: ids.length }, 'Batch delete request');
+        logger.debug({ userId, idsCount: ids.length }, 'Batch delete request');
 
         // 查询所有要删除的错题，验证所有权
         const itemsToDelete = await prisma.errorItem.findMany({
@@ -57,7 +50,7 @@ export async function POST(req: Request) {
 
         // 过滤出属于当前用户的错题
         const ownedIds = itemsToDelete
-            .filter(item => item.userId === user.id)
+            .filter(item => item.userId === userId)
             .map(item => item.id);
 
         const unauthorizedIds = ids.filter(id => !ownedIds.includes(id));

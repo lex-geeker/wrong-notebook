@@ -37,6 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
                 include: { record: true, errorItem: { select: { masteryLevel: true } } },
             });
             if (!item) return null;
+            if (item.purpose === "correction") return "paperOnly" as const;
             let answerInput: string;
             let isCorrect: boolean;
             let matchType: "exact" | "choice" | "self_assessment";
@@ -116,6 +117,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!result) return notFound("Practice question not found");
         if (result === "answered") return conflict("This question was already answered");
         if (result === "unsubmitted") return badRequest("Submit an answer before assessing it");
+        if (result === "paperOnly") return badRequest("Correction tasks must be graded from the paper workflow");
         return NextResponse.json(result);
     } catch (error) {
         logger.error({ error }, "Failed to save practice answer");

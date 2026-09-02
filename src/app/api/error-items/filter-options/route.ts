@@ -12,15 +12,11 @@ export async function GET(req: Request) {
     const subjectId = new URL(req.url).searchParams.get("subjectId")?.trim();
 
     try {
-        const user = session?.user?.email
-            ? await prisma.user.findUnique({ where: { email: session.user.email } })
-            : null;
-
-        if (!user) return unauthorized("Authentication required");
+        if (!session?.user?.id) return unauthorized("Authentication required");
         if (!subjectId) return badRequest("subjectId is required");
 
         const items = await prisma.errorItem.findMany({
-            where: { userId: user.id, subjectId },
+            where: { userId: session.user.id, subjectId },
             select: {
                 gradeSemester: true,
                 tags: { select: { name: true } },

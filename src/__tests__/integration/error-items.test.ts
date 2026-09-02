@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     },
     mockSession: {
         user: {
+            id: 'user-123',
             email: 'user@example.com',
             name: 'Test User',
         },
@@ -63,12 +64,9 @@ vi.mock('@/lib/grade-calculator', () => ({
 
 // Import after mocks
 import { POST } from '@/app/api/error-items/route';
-import { GET as GET_ITEM, PUT } from '@/app/api/error-items/[id]/route';
+import { GET as GET_ITEM, PUT, DELETE as DELETE_ITEM } from '@/app/api/error-items/[id]/route';
 import { GET as GET_FILTER_OPTIONS } from '@/app/api/error-items/filter-options/route';
 import { GET as GET_LIST } from '@/app/api/error-items/list/route';
-import { PATCH as PATCH_NOTES } from '@/app/api/error-items/[id]/notes/route';
-import { PATCH as PATCH_MASTERY } from '@/app/api/error-items/[id]/mastery/route';
-import { DELETE as DELETE_ITEM } from '@/app/api/error-items/[id]/delete/route';
 import { getServerSession } from 'next-auth';
 
 describe('/api/error-items', () => {
@@ -668,7 +666,7 @@ describe('/api/error-items', () => {
         });
     });
 
-    describe('PATCH /api/error-items/[id]/notes (更新笔记)', () => {
+    describe('PUT /api/error-items/[id] (更新笔记)', () => {
         it('应该成功更新用户笔记', async () => {
             const existingItem = {
                 id: 'error-item-1',
@@ -680,13 +678,13 @@ describe('/api/error-items', () => {
                 userNotes: '这道题需要注意移项变号',
             });
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/notes', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ userNotes: '这道题需要注意移项变号' }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_NOTES(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(200);
@@ -704,13 +702,13 @@ describe('/api/error-items', () => {
                 userNotes: '',
             });
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/notes', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ userNotes: '' }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_NOTES(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(200);
@@ -725,28 +723,27 @@ describe('/api/error-items', () => {
                 userNotes: longNote,
             });
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/notes', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ userNotes: longNote }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_NOTES(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
 
             expect(response.status).toBe(200);
         });
 
         it('应该拒绝未登录用户', async () => {
-            mocks.mockPrismaUser.findUnique.mockResolvedValue(null);
-            mocks.mockPrismaUser.findFirst.mockResolvedValue(null);
+            vi.mocked(getServerSession).mockResolvedValue(null);
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/notes', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ userNotes: '笔记' }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_NOTES(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(401);
@@ -756,21 +753,21 @@ describe('/api/error-items', () => {
         it('应该处理数据库错误', async () => {
             mocks.mockPrismaErrorItem.update.mockRejectedValue(new Error('Database error'));
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/notes', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ userNotes: '笔记' }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_NOTES(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(500);
-            expect(data.message).toBe('Failed to update notes');
+            expect(data.message).toBe('Failed to update error item');
         });
     });
 
-    describe('PATCH /api/error-items/[id]/mastery (更新掌握程度)', () => {
+    describe('PUT /api/error-items/[id] (更新掌握程度)', () => {
         it('应该成功更新掌握程度为已掌握', async () => {
             // Mock ownership check (findUnique)
             mocks.mockPrismaErrorItem.findUnique.mockResolvedValue({
@@ -783,13 +780,13 @@ describe('/api/error-items', () => {
                 masteryLevel: 1,
             });
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/mastery', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ masteryLevel: 1 }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_MASTERY(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(200);
@@ -808,13 +805,13 @@ describe('/api/error-items', () => {
                 masteryLevel: 0,
             });
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/mastery', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ masteryLevel: 0 }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_MASTERY(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(200);
@@ -836,27 +833,27 @@ describe('/api/error-items', () => {
                     masteryLevel: level,
                 });
 
-                const request = new Request('http://localhost/api/error-items/error-item-1/mastery', {
-                    method: 'PATCH',
+                const request = new Request('http://localhost/api/error-items/error-item-1', {
+                    method: 'PUT',
                     body: JSON.stringify({ masteryLevel: level }),
                     headers: { 'Content-Type': 'application/json' },
                 });
 
-                const response = await PATCH_MASTERY(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+                const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
                 expect(response.status).toBe(200);
             }
         });
 
         it('应该拒绝未登录用户', async () => {
-            mocks.mockPrismaUser.findUnique.mockResolvedValue(null);
+            vi.mocked(getServerSession).mockResolvedValue(null);
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/mastery', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ masteryLevel: 1 }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_MASTERY(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(401);
@@ -871,13 +868,13 @@ describe('/api/error-items', () => {
             });
             mocks.mockPrismaErrorItem.update.mockRejectedValue(new Error('Database error'));
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/mastery', {
-                method: 'PATCH',
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
                 body: JSON.stringify({ masteryLevel: 1 }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const response = await PATCH_MASTERY(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
             const data = await response.json();
 
             expect(response.status).toBe(500);
@@ -885,7 +882,7 @@ describe('/api/error-items', () => {
         });
     });
 
-    describe('DELETE /api/error-items/[id]/delete (删除错题)', () => {
+    describe('DELETE /api/error-items/[id] (删除错题)', () => {
         it('应该成功删除自己的错题', async () => {
             const existingItem = {
                 id: 'error-item-1',
@@ -895,7 +892,7 @@ describe('/api/error-items', () => {
             mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(existingItem);
             mocks.mockPrismaErrorItem.delete.mockResolvedValue(existingItem);
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/delete', {
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
                 method: 'DELETE',
             });
 
@@ -912,7 +909,7 @@ describe('/api/error-items', () => {
         it('应该返回 404 当错题不存在', async () => {
             mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(null);
 
-            const request = new Request('http://localhost/api/error-items/not-exist/delete', {
+            const request = new Request('http://localhost/api/error-items/not-exist', {
                 method: 'DELETE',
             });
 
@@ -927,7 +924,7 @@ describe('/api/error-items', () => {
         it('应该拒绝删除其他用户的错题', async () => {
             mocks.mockPrismaErrorItem.findFirst.mockResolvedValueOnce(null);
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/delete', {
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
                 method: 'DELETE',
             });
 
@@ -940,10 +937,9 @@ describe('/api/error-items', () => {
         });
 
         it('应该拒绝未登录用户', async () => {
-            mocks.mockPrismaUser.findUnique.mockResolvedValue(null);
-            mocks.mockPrismaUser.findFirst.mockResolvedValue(null);
+            vi.mocked(getServerSession).mockResolvedValue(null);
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/delete', {
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
                 method: 'DELETE',
             });
 
@@ -961,7 +957,7 @@ describe('/api/error-items', () => {
             });
             mocks.mockPrismaErrorItem.delete.mockRejectedValue(new Error('Database error'));
 
-            const request = new Request('http://localhost/api/error-items/error-item-1/delete', {
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
                 method: 'DELETE',
             });
 

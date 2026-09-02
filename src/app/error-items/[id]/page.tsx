@@ -19,6 +19,15 @@ import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { getMistakeStatusLabel, normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import { NotebookSelector } from "@/components/notebook-selector";
 import { GeogebraDemo } from "@/components/geogebra-demo";
+import {
+    ERROR_SOURCES,
+    ERROR_SOURCE_LABELS,
+    ERROR_TYPES,
+    ERROR_TYPE_LABELS,
+    metadataLabel,
+    type ErrorSource,
+    type ErrorType,
+} from "@/lib/error-metadata";
 
 interface KnowledgeTag {
     id: string;
@@ -47,6 +56,8 @@ interface ErrorItemDetail {
     gradeSemester?: string | null;
     paperLevel?: string | null;
     geogebraCommands?: string | null;
+    source?: string | null;
+    errorType?: string | null;
 }
 
 export default function ErrorDetailPage() {
@@ -64,6 +75,8 @@ export default function ErrorDetailPage() {
     const [gradeSemesterInput, setGradeSemesterInput] = useState("");
     const [paperLevelInput, setPaperLevelInput] = useState("a");
     const [notebookInput, setNotebookInput] = useState<string | null>(null);
+    const [sourceInput, setSourceInput] = useState<ErrorSource>("homework");
+    const [errorTypeInput, setErrorTypeInput] = useState<ErrorType | undefined>();
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
@@ -140,7 +153,7 @@ export default function ErrorDetailPage() {
     const resetMastery = async () => {
         if (!item || item.masteryLevel !== 2) return;
         try {
-            await apiClient.patch(`/api/error-items/${item.id}/mastery`, { masteryLevel: 0 });
+            await apiClient.put(`/api/error-items/${item.id}`, { masteryLevel: 0 });
             setItem({ ...item, masteryLevel: 0 });
         } catch (error) {
             console.error(error);
@@ -155,7 +168,7 @@ export default function ErrorDetailPage() {
         if (!confirm(confirmMessage)) return;
 
         try {
-            await apiClient.delete(`/api/error-items/${item.id}/delete`);
+            await apiClient.delete(`/api/error-items/${item.id}`);
             alert(t.common?.messages?.deleteSuccess || 'Deleted successfully');
             if (item.subjectId) {
                 router.push(`/notebooks/${item.subjectId}`);
@@ -211,6 +224,8 @@ export default function ErrorDetailPage() {
             setNotebookInput(item.subjectId || null);
             setGradeSemesterInput(item.gradeSemester || "");
             setPaperLevelInput(item.paperLevel || "a");
+            setSourceInput(ERROR_SOURCES.includes(item.source as ErrorSource) ? item.source as ErrorSource : "other");
+            setErrorTypeInput(ERROR_TYPES.includes(item.errorType as ErrorType) ? item.errorType as ErrorType : undefined);
             setIsEditingMetadata(true);
         }
     };
@@ -221,6 +236,8 @@ export default function ErrorDetailPage() {
                 subjectId: notebookInput || null,
                 gradeSemester: gradeSemesterInput,
                 paperLevel: paperLevelInput,
+                source: sourceInput,
+                errorType: errorTypeInput || null,
             });
 
             setIsEditingMetadata(false);
@@ -376,7 +393,7 @@ export default function ErrorDetailPage() {
         if (!item) return;
 
         try {
-            await apiClient.patch(`/api/error-items/${item.id}/notes`, { userNotes: notesInput });
+            await apiClient.put(`/api/error-items/${item.id}`, { userNotes: notesInput });
             setItem({ ...item, userNotes: notesInput });
             setIsEditingNotes(false);
             alert(t.common?.messages?.noteSaveSuccess || 'Notes saved successfully');
@@ -478,6 +495,8 @@ export default function ErrorDetailPage() {
                                     <div className="space-y-2"><label className="text-sm text-muted-foreground">{t.notebooks?.title || "Notebook"}</label><NotebookSelector value={notebookInput || undefined} onChange={setNotebookInput} /></div>
                                     <div className="space-y-2"><label className="text-sm text-muted-foreground">{t.filter.grade}</label><Input value={gradeSemesterInput} onChange={e => setGradeSemesterInput(e.target.value)} placeholder={t.notebook?.gradeSemesterPlaceholder || "e.g. Grade 7, Semester 1"} /></div>
                                     <div className="space-y-2"><label className="text-sm text-muted-foreground">{t.filter.paperLevel}</label><Select value={paperLevelInput} onValueChange={setPaperLevelInput}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="a">{t.editor.paperLevels?.a || "Paper A"}</SelectItem><SelectItem value="b">{t.editor.paperLevels?.b || "Paper B"}</SelectItem><SelectItem value="other">{t.editor.paperLevels?.other || "Other"}</SelectItem></SelectContent></Select></div>
+                                    <div className="space-y-2"><label className="text-sm text-muted-foreground">{language === "zh" ? "错题来源" : "Source"}</label><Select value={sourceInput} onValueChange={(value) => setSourceInput(value as ErrorSource)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ERROR_SOURCES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_SOURCE_LABELS, language)}</SelectItem>)}</SelectContent></Select></div>
+                                    <div className="space-y-2"><label className="text-sm text-muted-foreground">{language === "zh" ? "错因" : "Error cause"}</label><Select value={errorTypeInput || "unclassified"} onValueChange={(value) => setErrorTypeInput(value === "unclassified" ? undefined : value as ErrorType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unclassified">{language === "zh" ? "暂不确定" : "Not sure yet"}</SelectItem>{ERROR_TYPES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_TYPE_LABELS, language)}</SelectItem>)}</SelectContent></Select></div>
                                     <div className="flex gap-2"><Button size="sm" onClick={saveMetadataHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingMetadata}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div>
                                 </div>
                             ) : (
@@ -485,6 +504,8 @@ export default function ErrorDetailPage() {
                                     <div className="flex justify-between"><span className="text-muted-foreground">{t.notebooks?.title || "Notebook"}:</span><span className="font-medium">{item.subject?.name || (t.common?.notSet || "Not set")}</span></div>
                                     <div className="flex justify-between"><span className="text-muted-foreground">{t.filter.grade}:</span><span className="font-medium">{item.gradeSemester || (t.common?.notSet || "Not set")}</span></div>
                                     <div className="flex justify-between"><span className="text-muted-foreground">{t.filter.paperLevel}:</span><span className="font-medium">{item.paperLevel ? (t.editor.paperLevels?.[item.paperLevel as "a" | "b" | "other"] || item.paperLevel) : (t.common?.notSet || "Not set")}</span></div>
+                                    <div className="flex justify-between"><span className="text-muted-foreground">{language === "zh" ? "错题来源" : "Source"}:</span><span className="font-medium">{metadataLabel(item.source, ERROR_SOURCE_LABELS, language) || (t.common?.notSet || "Not set")}</span></div>
+                                    <div className="flex justify-between"><span className="text-muted-foreground">{language === "zh" ? "错因" : "Error cause"}:</span><span className="font-medium">{metadataLabel(item.errorType, ERROR_TYPE_LABELS, language) || (t.common?.notSet || "Not set")}</span></div>
                                 </div>
                             )}
                         </div>

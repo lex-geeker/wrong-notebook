@@ -1,4 +1,4 @@
-import { ParsedQuestion } from "@/lib/ai/types";
+import type { ParsedQuestion } from "@/lib/ai/types";
 import type { PracticeMode, PracticeSource } from "@/lib/practice";
 
 export type { PracticeFilters, PracticeMode, PracticeSource } from "@/lib/practice";
@@ -63,6 +63,7 @@ export interface ErrorItem {
     mistakeStatus?: 'not_attempted' | 'wrong_attempt' | 'unknown' | string | null;
     source?: string | null;
     errorType?: string | null;
+    correctedAt?: string | null;
     userNotes?: string | null;
     tags?: Tag[];
 
@@ -109,6 +110,8 @@ export interface OpenAIInstance {
     baseUrl: string;
     model: string;
 }
+
+export const MAX_OPENAI_INSTANCES = 10;
 
 export interface AppConfig {
     aiProvider: 'gemini' | 'openai' | 'azure';
@@ -187,6 +190,7 @@ export interface PracticeSessionItemData {
     errorItemId: string | null;
     questionText: string;
     generationMode: PracticeGenerationMode;
+    purpose: "correction" | "review";
     expectedAnswer?: string;
     answer?: {
         answerInput: string;
@@ -198,6 +202,24 @@ export interface PracticeSessionItemData {
 
 export interface PracticeSessionData extends PracticeSessionSummary {
     items: PracticeSessionItemData[];
+}
+
+export interface LearningOverview {
+    today: {
+        pendingCorrectionCount: number;
+        dueReviewCount: number;
+        unfinishedCount: number;
+    };
+    activeSession: PracticeSessionData | null;
+    week: {
+        completionDays: string[];
+        reviewedCount: number;
+        correctCount: number;
+        accuracy: number;
+        correctedCount: number;
+        topErrorTypes: Array<{ name: string; count: number }>;
+        weakTags: Array<{ name: string; count: number }>;
+    };
 }
 
 export interface TagStats {

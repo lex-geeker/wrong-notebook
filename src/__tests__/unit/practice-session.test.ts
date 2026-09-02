@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     getNextReviewDate,
+    getReviewRecords,
     isReviewDue,
     judgePracticeAnswer,
     nextMasteryLevel,
@@ -28,13 +29,22 @@ describe("practice session helpers", () => {
         expect(source).toEqual([1, 2, 3, 4, 5]);
     });
 
-    it("schedules review from the latest correct streak", () => {
+    it("schedules the first review one day after correction", () => {
         const createdAt = new Date("2026-01-01T00:00:00Z");
         const records = [{ createdAt: new Date("2026-01-02T00:00:00Z"), isCorrect: true }];
         expect(getNextReviewDate(createdAt, [])).toEqual(new Date("2026-01-02T00:00:00Z"));
         expect(getNextReviewDate(createdAt, records)).toEqual(new Date("2026-01-04T00:00:00Z"));
         expect(isReviewDue(createdAt, records, new Date("2026-01-03T23:59:59Z"))).toBe(false);
         expect(isReviewDue(createdAt, records, new Date("2026-01-04T00:00:00Z"))).toBe(true);
+    });
+
+    it("does not count initial correction records toward the review streak", () => {
+        const records = [
+            { createdAt: new Date("2026-01-02T00:00:00Z"), isCorrect: true, sessionItem: { purpose: "correction" } },
+            { createdAt: new Date("2026-01-03T00:00:00Z"), isCorrect: true, sessionItem: { purpose: "review" } },
+        ];
+        expect(getNextReviewDate(new Date("2026-01-02T00:00:00Z"), getReviewRecords(records)))
+            .toEqual(new Date("2026-01-05T00:00:00Z"));
     });
 
     it("resets incorrect answers and keeps a 30-day maintenance interval", () => {
@@ -53,7 +63,7 @@ describe("practice session helpers", () => {
     });
 
     it("exposes only current practice modes and sources", () => {
-        expect(PRACTICE_MODES).toEqual(["random", "unmastered", "ebbinghaus"]);
+        expect(PRACTICE_MODES).toEqual(["random", "unmastered", "ebbinghaus", "daily"]);
         expect(PRACTICE_SOURCES).toEqual(["original", "variant"]);
     });
 });

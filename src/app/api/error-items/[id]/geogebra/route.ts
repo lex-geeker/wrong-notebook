@@ -16,19 +16,12 @@ export async function POST(
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
 
         const errorItem = await prisma.errorItem.findFirst({
-            where: { id, userId: user.id },
+            where: { id, userId: session.user.id },
             include: { subject: true },
         });
 
@@ -78,7 +71,7 @@ export async function POST(
         // If suitable, save the commands to the database
         if (result.suitable && result.commands.length > 0) {
             await prisma.errorItem.update({
-                where: { id, userId: user.id },
+                where: { id, userId: session.user.id },
                 data: {
                     geogebraCommands: JSON.stringify(result.commands),
                 },

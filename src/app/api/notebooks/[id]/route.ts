@@ -19,14 +19,7 @@ export async function GET(
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
 
@@ -45,7 +38,7 @@ export async function GET(
             return notFound("Notebook not found");
         }
 
-        if (notebook.userId !== user.id) {
+        if (notebook.userId !== session.user.id) {
             return forbidden("Not authorized to access this notebook");
         }
 
@@ -68,14 +61,7 @@ export async function PUT(
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
 
@@ -87,7 +73,7 @@ export async function PUT(
             return notFound("Notebook not found");
         }
 
-        if (notebook.userId !== user.id) {
+        if (notebook.userId !== session.user.id) {
             return forbidden("Not authorized to update this notebook");
         }
 
@@ -131,14 +117,7 @@ export async function DELETE(
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
 
@@ -157,7 +136,7 @@ export async function DELETE(
             return notFound("Notebook not found");
         }
 
-        if (notebook.userId !== user.id) {
+        if (notebook.userId !== session.user.id) {
             return forbidden("Not authorized to delete this notebook");
         }
 

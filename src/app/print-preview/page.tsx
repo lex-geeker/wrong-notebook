@@ -34,6 +34,8 @@ function PrintPreviewContent() {
     const [showAnalysis, setShowAnalysis] = useState(false);
     const [showTags, setShowTags] = useState(false);
     const [imageScale, setImageScale] = useState(70);
+    const [columns, setColumns] = useState<1 | 2 | 3>(1);
+    const [reserveAnswerSpaceEnabled, setReserveAnswerSpaceEnabled] = useState(isPaperPractice);
     const [showQuestionText, setShowQuestionText] = useState(isPracticePrint);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -76,7 +78,11 @@ function PrintPreviewContent() {
     };
 
     const selectedItems = getSelectedPrintItems(items, selectedIds);
-    const reserveAnswerSpace = shouldReserveAnswerSpace(showAnswers, showAnalysis);
+    const reserveAnswerSpace = shouldReserveAnswerSpace(
+        showAnswers,
+        showAnalysis,
+        reserveAnswerSpaceEnabled,
+    );
     const countLabel = getPrintPreviewCountLabel(items.length, selectedItems.length);
     const emptyState = getPrintPreviewEmptyState(items.length, selectedItems.length);
     const canShowAnswers = !isPracticePrint || items.some((item) => item.answerText);
@@ -134,7 +140,7 @@ function PrintPreviewContent() {
                     </div>
 
                     {/* Controls Row */}
-                    {(!isPracticePrint || canShowAnswers) && <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
+                    <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
                         {/* Image Scale Control */}
                         {!isPracticePrint && <div className="flex items-center gap-2 text-sm bg-muted/50 px-2 sm:px-3 py-1 rounded-md">
                             <span className="whitespace-nowrap text-xs sm:text-sm">{t.printPreview?.imageScale || 'Image Scale'}: {imageScale}%</span>
@@ -147,6 +153,29 @@ function PrintPreviewContent() {
                                 className="w-16 sm:w-20 accent-primary"
                             />
                         </div>}
+
+                        <label className="flex items-center gap-2 text-xs sm:text-sm bg-muted/50 px-2 sm:px-3 py-1 rounded-md whitespace-nowrap">
+                            {t.printPreview?.columnsPerRow || 'Questions per row'}
+                            <select
+                                value={columns}
+                                onChange={(e) => setColumns(Number(e.target.value) as 1 | 2 | 3)}
+                                className="h-7 rounded border bg-background px-2"
+                            >
+                                <option value={1}>1</option>
+                                <option value={2}>2</option>
+                                <option value={3}>3</option>
+                            </select>
+                        </label>
+
+                        <label className="flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer whitespace-nowrap hover:text-primary transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={reserveAnswerSpaceEnabled}
+                                onChange={(e) => setReserveAnswerSpaceEnabled(e.target.checked)}
+                                className="rounded border-gray-300 text-primary focus:ring-primary w-3.5 h-3.5 sm:w-4 sm:h-4"
+                            />
+                            {t.printPreview?.reserveAnswerSpace || 'Reserve answer space'}
+                        </label>
 
                         {/* Toggle Options - Grid on Mobile */}
                         <div className="flex flex-wrap gap-x-3 gap-y-1 sm:gap-4">
@@ -187,7 +216,7 @@ function PrintPreviewContent() {
                                 {t.printPreview?.showTags || 'Show Tags'}
                             </label>}
                         </div>
-                    </div>}
+                    </div>
 
                     {/* Item Selection Row */}
                     <div className="rounded-md border bg-muted/20 p-3 space-y-2">
@@ -230,14 +259,17 @@ function PrintPreviewContent() {
             </div>
 
             {/* Print Content */}
-            <div className="max-w-4xl mx-auto p-8 print:p-0">
+            <div
+                className="grid max-w-4xl mx-auto gap-4 p-8 print:p-0"
+                style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+            >
                 {selectedItems.map((item, index) => {
                     const tags = item.tags?.map(t => t.name) || [];
 
                     return (
                         <div
                             key={item.id}
-                            className={`mb-4 border-b last:border-b-0 print:break-inside-avoid ${reserveAnswerSpace ? "pb-20 print:pb-16" : "pb-6"}`}
+                            className={`min-w-0 border-b last:border-b-0 print:break-inside-avoid ${reserveAnswerSpace ? "pb-20 print:pb-16" : "pb-6"}`}
                         >
                             {/* Question Header */}
                             <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 leading-7">
@@ -316,7 +348,7 @@ function PrintPreviewContent() {
                 })}
 
                 {emptyState && (
-                    <div className="text-center py-12 text-muted-foreground">
+                    <div className="col-span-full text-center py-12 text-muted-foreground">
                         {emptyState === 'noSelection'
                             ? (t.printPreview?.noSelection || 'No items selected')
                             : (t.printPreview?.noItems || 'No matching error items')}

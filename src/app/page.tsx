@@ -4,53 +4,49 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { BarChart3, BookOpen, BrainCircuit, CalendarClock, Loader2, LogOut, Printer, Tags, Upload } from "lucide-react";
+import { BarChart3, BookOpen, BrainCircuit, CalendarClock, CheckCircle2, Loader2, LogOut, Printer, Tags, Upload } from "lucide-react";
 import { BroadcastNotification } from "@/components/broadcast-notification";
 import { ErrorEntryFlow } from "@/components/error-entry-flow";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { UserWelcome } from "@/components/user-welcome";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient, ApiError } from "@/lib/api-client";
-import type { PracticeSource } from "@/lib/practice";
-import type { Notebook, PracticeSessionData } from "@/types/api";
+import type { LearningOverview, PracticeSessionData } from "@/types/api";
 
 function HomeContent() {
     const { t, language } = useLanguage();
     const router = useRouter();
     const initialNotebookId = useSearchParams().get("notebook");
-    const [notebooks, setNotebooks] = useState<Notebook[]>([]);
-    const [reviewSubjectId, setReviewSubjectId] = useState("all");
-    const [reviewSource, setReviewSource] = useState<PracticeSource>("variant");
+    const [overview, setOverview] = useState<LearningOverview | null>(null);
     const [reviewLoading, setReviewLoading] = useState(false);
     const [reviewError, setReviewError] = useState("");
 
     useEffect(() => {
-        apiClient.get<Notebook[]>("/api/notebooks")
-            .then(setNotebooks)
-            .catch(() => setNotebooks([]));
+        apiClient.get<LearningOverview>("/api/learning-overview")
+            .then(setOverview)
+            .catch(() => setOverview(null));
     }, []);
 
-    const createDueReview = async () => {
+    const createDailyTask = async () => {
         setReviewLoading(true);
         setReviewError("");
         try {
             const session = await apiClient.post<PracticeSessionData>("/api/practice/sessions", {
-                mode: "ebbinghaus",
-                questionSource: reviewSource,
+                mode: "daily",
+                questionSource: "variant",
                 count: 5,
                 language,
-                filters: { subjectId: reviewSubjectId === "all" ? undefined : reviewSubjectId },
             });
             router.push(`/print-preview?sessionId=${session.id}&paper=1`);
         } catch (error) {
             const details = error instanceof ApiError && error.data && typeof error.data === "object" && "details" in error.data
                 ? error.data.details
                 : null;
-            const noDue = details && typeof details === "object" && "reason" in details && details.reason === "NO_DUE_REVIEWS";
-            setReviewError(noDue ? t.practice.batch.noDueSubject : t.practice.batch.createError);
+            const noTask = details && typeof details === "object" && "reason" in details && details.reason === "NO_DAILY_TASKS";
+            setReviewError(noTask
+                ? (language === "zh" ? "今天的订正和复习都完成了。" : "Today's corrections and reviews are complete.")
+                : t.practice.batch.createError);
         } finally {
             setReviewLoading(false);
         }
@@ -85,42 +81,29 @@ function HomeContent() {
 
                 {!initialNotebookId && (
                     <section aria-labelledby="due-review-title" className="border-y bg-muted/30 px-4 py-5 sm:px-6">
-                        <div className="grid gap-5 lg:grid-cols-[minmax(190px,1fr)_minmax(0,2fr)] lg:items-end">
+                        <div className="grid gap-5 lg:grid-cols-[minmax(220px,1fr)_minmax(0,2fr)_auto] lg:items-center">
                             <div className="flex items-center gap-3">
                                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-background text-primary">
                                     <CalendarClock className="h-5 w-5" />
                                 </div>
                                 <div>
-                                    <h2 id="due-review-title" className="text-lg font-semibold">{t.practice.batch.todayDue}</h2>
-                                    <p className="text-sm text-muted-foreground">{t.practice.batch.todayDueCount}</p>
+                                    <h2 id="due-review-title" className="text-lg font-semibold">{language === "zh" ? "今日任务" : "Today's task"}</h2>
+                                    <p className="text-sm text-muted-foreground">{language === "zh" ? "每天 5 题，先订正再复习" : "Five questions: corrections first, then reviews"}</p>
                                 </div>
                             </div>
-                            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                                <div className="space-y-2">
-                                    <Label htmlFor="due-review-subject">{t.practice.batch.subject}</Label>
-                                    <Select value={reviewSubjectId} onValueChange={setReviewSubjectId}>
-                                        <SelectTrigger id="due-review-subject"><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="all">{t.practice.batch.allSubjects}</SelectItem>
-                                            {notebooks.map(notebook => <SelectItem key={notebook.id} value={notebook.id}>{notebook.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="due-review-source">{t.practice.batch.source}</Label>
-                                    <Select value={reviewSource} onValueChange={value => setReviewSource(value as PracticeSource)}>
-                                        <SelectTrigger id="due-review-source"><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="variant">{t.practice.batch.variant}</SelectItem>
-                                            <SelectItem value="original">{t.practice.batch.original}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <Button onClick={createDueReview} disabled={reviewLoading} className="h-10 sm:px-5">
-                                    {reviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
-                                    {reviewLoading ? t.practice.batch.starting : t.practice.batch.printToday}
-                                </Button>
+                            <div className="grid grid-cols-3 divide-x text-center">
+                                <div><strong className="block text-2xl">{overview?.today.pendingCorrectionCount ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "待订正" : "To correct"}</span></div>
+                                <div><strong className="block text-2xl">{overview?.today.dueReviewCount ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "到期复习" : "Due reviews"}</span></div>
+                                <div><strong className="block text-2xl">{overview?.today.unfinishedCount ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "任务未完成" : "Unfinished"}</span></div>
                             </div>
+                            <Button onClick={createDailyTask} disabled={reviewLoading || !overview} className="h-11 whitespace-nowrap px-5">
+                                {reviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : overview?.activeSession ? <Printer className="mr-2 h-4 w-4" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                                {reviewLoading
+                                    ? t.practice.batch.starting
+                                    : overview?.activeSession
+                                        ? (language === "zh" ? "继续并打印今日任务" : "Continue and print")
+                                        : (language === "zh" ? "生成并打印今日 5 题" : "Create and print today's 5")}
+                            </Button>
                         </div>
                         {reviewError && <p className="mt-3 text-sm text-destructive" role="alert">{reviewError}</p>}
                     </section>

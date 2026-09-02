@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     getAIService: vi.fn(),
     generateSimilarQuestion: vi.fn(),
     getServerSession: vi.fn(),
+    findSession: vi.fn(),
 }));
 
 vi.mock("next-auth", () => ({ getServerSession: mocks.getServerSession }));
@@ -14,15 +15,16 @@ vi.mock("@/lib/ai", () => ({ getAIService: mocks.getAIService }));
 vi.mock("@/lib/prisma", () => ({
     prisma: {
         errorItem: { findMany: mocks.findMany },
-        practiceSession: { create: mocks.createSession },
+        practiceSession: { findFirst: mocks.findSession, create: mocks.createSession },
     },
 }));
 
 import { POST } from "@/app/api/practice/sessions/route";
 
-const candidate = (id: string, createdAt: string) => ({
+const candidate = (id: string, createdAt: string, correctedAt: string | null = createdAt) => ({
     id,
     createdAt: new Date(createdAt),
+    correctedAt: correctedAt ? new Date(correctedAt) : null,
     questionText: `question-${id}`,
     answerText: `answer-${id}`,
     gradeSemester: null,
@@ -47,6 +49,7 @@ describe("POST /api/practice/sessions", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getServerSession.mockResolvedValue({ user: { id: "user-1" } });
+        mocks.findSession.mockResolvedValue(null);
         mocks.getAIService.mockReturnValue({ generateSimilarQuestion: mocks.generateSimilarQuestion });
         mocks.createSession.mockImplementation(({ data }) => Promise.resolve({
             id: "session-1",
@@ -102,6 +105,55 @@ describe("POST /api/practice/sessions", () => {
         expect(response.status).toBe(400);
         expect(await response.json()).toMatchObject({ details: { reason: "NO_DUE_REVIEWS" } });
         expect(mocks.createSession).not.toHaveBeenCalled();
+    });
+
+    it("reuses an unfinished daily session without selecting or generating again", async () => {
+        mocks.findSession.mockResolvedValue({
+            id: "active",
+            userId: "user-1",
+            mode: "daily",
+            questionSource: "variant",
+            language: "zh",
+            startedAt: new Date("2026-01-01T00:00:00Z"),
+            endedAt: null,
+            items: [],
+        });
+
+        const response = await POST(request({ mode: "daily", questionSource: "variant" }));
+
+        expect(response.status).toBe(200);
+        expect((await response.json()).id).toBe("active");
+        expect(mocks.findMany).not.toHaveBeenCalled();
+        expect(mocks.createSession).not.toHaveBeenCalled();
+    });
+
+    it("orders corrections first, fills with earliest due reviews, and caps daily work at five", async () => {
+        mocks.findMany.mockResolvedValue([
+            candidate("review-later", "2020-01-02T00:00:00Z"),
+            candidate("pending-newer", "2026-01-02T00:00:00Z", null),
+            candidate("review-earlier", "2020-01-01T00:00:00Z"),
+            candidate("pending-older", "2026-01-01T00:00:00Z", null),
+            candidate("review-third", "2020-01-03T00:00:00Z"),
+            candidate("review-fourth", "2020-01-04T00:00:00Z"),
+        ]);
+        mocks.generateSimilarQuestion.mockImplementation((question: string) => Promise.resolve({
+            questionText: `variant-${question}`,
+            answerText: "variant-answer",
+        }));
+
+        const response = await POST(request({ mode: "daily", questionSource: "variant" }));
+        const createdItems = mocks.createSession.mock.calls[0][0].data.items.create;
+
+        expect(response.status).toBe(201);
+        expect(createdItems).toHaveLength(5);
+        expect(createdItems.map((item: { errorItemId: string }) => item.errorItemId)).toEqual([
+            "pending-older", "pending-newer", "review-earlier", "review-later", "review-third",
+        ]);
+        expect(createdItems.map((item: { purpose: string }) => item.purpose)).toEqual([
+            "correction", "correction", "review", "review", "review",
+        ]);
+        expect(createdItems.slice(0, 2).every((item: { generationMode: string }) => item.generationMode === "original")).toBe(true);
+        expect(mocks.generateSimilarQuestion).toHaveBeenCalledTimes(3);
     });
 
     it("tries every selected variant and falls back only failed questions", async () => {

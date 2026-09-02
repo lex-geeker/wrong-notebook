@@ -15,20 +15,14 @@ export async function GET() {
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
+        const userId = session.user.id;
 
         let notebooks = await prisma.subject.findMany({
             where: {
-                userId: user.id,
+                userId,
             },
             include: {
                 _count: {
@@ -50,7 +44,7 @@ export async function GET() {
                 prisma.subject.create({
                     data: {
                         name,
-                        userId: user!.id,
+                        userId,
                     }
                 })
             ));
@@ -58,7 +52,7 @@ export async function GET() {
             // Fetch again
             notebooks = await prisma.subject.findMany({
                 where: {
-                    userId: user.id,
+                    userId,
                 },
                 include: {
                     _count: {
@@ -88,16 +82,10 @@ export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
+        if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
+        const userId = session.user.id;
 
         const body = await req.json();
         const { name } = body;
@@ -111,7 +99,7 @@ export async function POST(req: Request) {
             where: {
                 name_userId: {
                     name: name.trim(),
-                    userId: user.id,
+                    userId,
                 },
             },
         });
@@ -123,7 +111,7 @@ export async function POST(req: Request) {
         const notebook = await prisma.subject.create({
             data: {
                 name: name.trim(),
-                userId: user.id,
+                userId,
             },
             include: {
                 _count: {

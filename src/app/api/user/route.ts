@@ -21,13 +21,13 @@ const userUpdateSchema = z.object({
 export async function GET() {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
         return unauthorized();
     }
 
     try {
         const user = await prisma.user.findUnique({
-            where: { email: session.user.email },
+            where: { id: session.user.id },
             select: {
                 name: true,
                 email: true,
@@ -53,7 +53,7 @@ export async function GET() {
 export async function PATCH(req: Request) {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
         return unauthorized();
     }
 
@@ -89,7 +89,7 @@ export async function PATCH(req: Request) {
         }
 
         const updatedUser = await prisma.user.update({
-            where: { email: session.user.email },
+            where: { id: session.user.id },
             data: updateData,
             select: {
                 name: true,

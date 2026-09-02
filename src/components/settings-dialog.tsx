@@ -20,19 +20,17 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Trash2, Loader2, AlertTriangle, Save, Eye, EyeOff, Languages, User, Bot, Shield, RefreshCw, Plus, Zap, CheckCircle2, XCircle, Download, Upload, BarChart3 } from "lucide-react";
+import { Settings, Trash2, Loader2, AlertTriangle, Eye, EyeOff, Languages, User, Bot, Shield, RefreshCw, Plus, Zap, CheckCircle2, XCircle, Download, Upload, BarChart3 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { UserManagement } from "@/components/admin/user-management";
 import { apiClient, ApiError } from "@/lib/api-client";
-import { frontendLogger } from "@/lib/frontend-logger";
-import { AppConfig, UserProfile, UpdateUserProfileRequest, OpenAIInstance } from "@/types/api";
+import { AppConfig, UserProfile, UpdateUserProfileRequest, OpenAIInstance, MAX_OPENAI_INSTANCES } from "@/types/api";
 import { ModelSelector } from "@/components/ui/model-selector";
 import { PromptSettings } from "@/components/settings/prompt-settings";
 
 import { MessageSquareText, Info, ExternalLink, Github, ScrollText } from "lucide-react";
-const MAX_OPENAI_INSTANCES = 10;
 
 interface ProfileFormState {
     name: string;
@@ -51,6 +49,8 @@ interface ImportResponse {
         practiceRecordsCreated: number;
     };
 }
+
+type DataScope = 'user' | 'all';
 
 export function SettingsDialog() {
     const { data: session } = useSession();
@@ -120,7 +120,7 @@ export function SettingsDialog() {
             const data = await apiClient.get<AppConfig>("/api/settings");
             setConfig(data);
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Failed to fetch settings', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] Failed to fetch settings', error);
         } finally {
             setLoading(false);
         }
@@ -138,7 +138,7 @@ export function SettingsDialog() {
                 password: ""
             });
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Failed to fetch profile', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] Failed to fetch profile', error);
         } finally {
             setProfileLoading(false);
         }
@@ -202,7 +202,7 @@ export function SettingsDialog() {
             // 保存成功后滚动到顶部，方便关闭对话框
             dialogContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Failed to save settings', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] Failed to save settings', error);
             alert(t.settings?.messages?.saveFailed || "Failed to save");
         } finally {
             setSaving(false);
@@ -244,7 +244,7 @@ export function SettingsDialog() {
         } catch (error: unknown) {
             const data = error instanceof ApiError ? error.data : null;
             const apiMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : null;
-            frontendLogger.error('[SettingsDialog]', 'Failed to update profile', { error: apiMessage || (error instanceof Error ? error.message : String(error)) });
+            console.error('[SettingsDialog] Failed to update profile', error);
             const message = apiMessage || (t.settings?.messages?.updateFailed || "Update failed");
             alert(message);
         } finally {
@@ -264,7 +264,7 @@ export function SettingsDialog() {
             setOpen(false);
             window.location.reload();
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Failed to clear practice data', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] Failed to clear practice data', error);
             alert(t.settings?.clearError || "Failed");
         } finally {
             setClearingPractice(false);
@@ -283,7 +283,7 @@ export function SettingsDialog() {
             setOpen(false);
             window.location.reload();
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Failed to clear error data', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] Failed to clear error data', error);
             alert(t.settings?.clearError || "Failed");
         } finally {
             setClearingError(false);
@@ -310,51 +310,22 @@ export function SettingsDialog() {
             setOpen(false);
             window.location.reload();
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'System reset failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] System reset failed', error);
             alert(t.settings?.clearError || "Failed to reset system");
         } finally {
             setSystemResetting(false);
         }
     };
 
-    const handleExportData = async () => {
-        setExporting(true);
-        try {
-            const res = await fetch('/api/export');
-            if (!res.ok) {
-                throw new Error('Export failed');
-            }
-            const blob = await res.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            // Get filename from Content-Disposition header or use default
-            const disposition = res.headers.get('Content-Disposition');
-            const filenameMatch = disposition?.match(/filename="(.+)"/);
-            a.download = filenameMatch ? filenameMatch[1] : 'wrong-notebook-export.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-            alert(t.settings?.exportSuccess || "Export successful");
-        } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Export failed', { error: error instanceof Error ? error.message : String(error) });
-            alert(t.settings?.exportFailed || "Export failed");
-        } finally {
-            setExporting(false);
-        }
-    };
+    const handleExportData = async (scope: DataScope) => {
+        if (scope === 'all' && !confirm(t.settings?.exportAllConfirm || "Export all users' data? This may take a while.")) return;
 
-    const handleExportAllData = async () => {
-        if (!confirm(t.settings?.exportAllConfirm || "Export all users' data? This may take a while.")) {
-            return;
-        }
         setExporting(true);
         try {
-            const res = await fetch('/api/export?all=true');
+            const res = await fetch(`/api/export${scope === 'all' ? '?all=true' : ''}`);
             if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.message || 'Export failed');
+                const data = await res.json().catch(() => null);
+                throw new Error(data?.message || 'Export failed');
             }
             const blob = await res.blob();
             const url = window.URL.createObjectURL(blob);
@@ -362,14 +333,14 @@ export function SettingsDialog() {
             a.href = url;
             const disposition = res.headers.get('Content-Disposition');
             const filenameMatch = disposition?.match(/filename="(.+)"/);
-            a.download = filenameMatch ? filenameMatch[1] : 'wrong-notebook-export-all.json';
+            a.download = filenameMatch?.[1] || `wrong-notebook-export${scope === 'all' ? '-all' : ''}.json`;
             document.body.appendChild(a);
             a.click();
-            document.body.removeChild(a);
+            a.remove();
             window.URL.revokeObjectURL(url);
             alert(t.settings?.exportSuccess || "Export successful");
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Export all failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error(`[SettingsDialog] ${scope} export failed`, error);
             alert(t.settings?.exportFailed || "Export failed");
         } finally {
             setExporting(false);
@@ -384,19 +355,20 @@ export function SettingsDialog() {
         }
     };
 
-    const handleImportData = async () => {
+    const handleImportData = async (scope: DataScope) => {
         if (!selectedFile) return;
 
-        if (!confirm(t.settings?.importConfirm || "Are you sure you want to import?")) {
-            return;
-        }
+        const confirmation = scope === 'all'
+            ? t.settings?.importAllConfirm || "Import all users' data? This will restore data for all users from the export file."
+            : t.settings?.importConfirm || "Are you sure you want to import?";
+        if (!confirm(confirmation)) return;
 
         setImporting(true);
         try {
             const text = await selectedFile.text();
             const data = JSON.parse(text);
 
-            const response = await apiClient.post<ImportResponse>('/api/import', data);
+            const response = await apiClient.post<ImportResponse>(`/api/import${scope === 'all' ? '?all=true' : ''}`, data);
             const stats = response.stats;
 
             alert(
@@ -412,48 +384,7 @@ export function SettingsDialog() {
             setSelectedFileName("");
             window.location.reload();
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Import failed', { error: error instanceof Error ? error.message : String(error) });
-            alert(t.settings?.importFailed || "Import failed");
-        } finally {
-            setImporting(false);
-        }
-    };
-
-    const handleImportAllData = async () => {
-        if (!selectedFile) return;
-
-        if (!confirm(t.settings?.importAllConfirm || "Import all users' data? This will restore data for all users from the export file.")) {
-            return;
-        }
-
-        setImporting(true);
-        try {
-            const text = await selectedFile.text();
-            const data = JSON.parse(text);
-            const res = await fetch("/api/import?all=true", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-            const result = await res.json();
-            if (result.success) {
-                const s = result.stats;
-                alert(
-                    (t.settings?.importResultDesc || "Imported {subjects} notebooks, {tags} tags, {items} error items and {records} practice records; ignored {schedules} legacy review schedules.")
-                        .replace('{subjects}', String(s.subjectsCreated))
-                        .replace('{tags}', String(s.tagsCreated))
-                        .replace('{items}', String(s.errorItemsCreated))
-                        .replace('{schedules}', String(s.reviewSchedulesIgnored))
-                        .replace('{records}', String(s.practiceRecordsCreated))
-                );
-                setSelectedFile(null);
-                setSelectedFileName("");
-                window.location.reload();
-            } else {
-                throw new Error(result.message || "Import failed");
-            }
-        } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Import all failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error(`[SettingsDialog] ${scope} import failed`, error);
             alert(t.settings?.importFailed || "Import failed");
         } finally {
             setImporting(false);
@@ -471,7 +402,7 @@ export function SettingsDialog() {
             alert(`${t.settings?.clearSuccess || "Success"}: ${res.count || 0} tags migrated.`);
             // No reload needed necessarily, but good to refresh if user is viewing tags.
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'Tag migration failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] Tag migration failed', error);
             alert(t.settings?.clearError || "Failed to migrate tags");
         } finally {
             setMigratingTags(false);
@@ -646,7 +577,7 @@ export function SettingsDialog() {
 
             setTestResult(response);
         } catch (error) {
-            frontendLogger.error('[SettingsDialog]', 'AI connection test failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[SettingsDialog] AI connection test failed', error);
             setTestResult({
                 success: false,
                 textSupport: false,
@@ -1278,7 +1209,7 @@ export function SettingsDialog() {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={handleExportData}
+                                                onClick={() => handleExportData('user')}
                                                 disabled={exporting}
                                                 className="bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-300"
                                             >
@@ -1293,7 +1224,7 @@ export function SettingsDialog() {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    onClick={handleExportAllData}
+                                                    onClick={() => handleExportData('all')}
                                                     disabled={exporting}
                                                     className="bg-orange-100 hover:bg-orange-200 text-orange-900 border-orange-300"
                                                 >
@@ -1345,7 +1276,7 @@ export function SettingsDialog() {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    onClick={handleImportData}
+                                                    onClick={() => handleImportData('user')}
                                                     disabled={importing}
                                                     className="bg-green-100 hover:bg-green-200 text-green-900 border-green-300"
                                                 >
@@ -1361,7 +1292,7 @@ export function SettingsDialog() {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    onClick={handleImportAllData}
+                                                    onClick={() => handleImportData('all')}
                                                     disabled={importing}
                                                     className="bg-orange-100 hover:bg-orange-200 text-orange-900 border-orange-300"
                                                 >

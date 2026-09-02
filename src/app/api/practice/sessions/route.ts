@@ -11,6 +11,7 @@ import {
     PRACTICE_MODES,
     PRACTICE_SOURCES,
     getNextReviewDate,
+    getReviewRecords,
     isReviewDue,
     pickRandom,
     serializePracticeSession,
@@ -75,6 +76,14 @@ export async function POST(req: Request) {
         if (!parsed.success) return badRequest("Invalid practice settings", parsed.error.flatten());
 
         const { mode, questionSource, count, language, filters = {}, errorItemId } = parsed.data;
+        if (mode === "daily") {
+            const active = await prisma.practiceSession.findFirst({
+                where: { userId: session.user.id, mode: "daily", endedAt: null },
+                orderBy: { startedAt: "desc" },
+                include: { items: { include: { record: true } } },
+            });
+            if (active) return NextResponse.json(serializePracticeSession(active));
+        }
         const and: Prisma.ErrorItemWhereInput[] = [
             { questionText: { not: null } },
             { answerText: { not: null } },
@@ -88,6 +97,7 @@ export async function POST(req: Request) {
 
         const where: Prisma.ErrorItemWhereInput = {
             userId: session.user.id,
+            ...(mode === "daily" ? {} : { correctedAt: { not: null } }),
             ...(errorItemId ? { id: errorItemId } : {}),
             ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
             ...(filters.gradeSemester ? { gradeSemester: { contains: filters.gradeSemester } } : {}),
@@ -109,6 +119,7 @@ export async function POST(req: Request) {
             select: {
                 id: true,
                 createdAt: true,
+                correctedAt: true,
                 questionText: true,
                 answerText: true,
                 gradeSemester: true,
@@ -116,21 +127,47 @@ export async function POST(req: Request) {
                 subject: { select: { name: true } },
                 practiceRecords: {
                     where: { isCorrect: { not: null } },
-                    select: { createdAt: true, isCorrect: true },
+                    select: {
+                        createdAt: true,
+                        isCorrect: true,
+                        sessionItem: { select: { purpose: true } },
+                    },
                 },
             },
         });
-        const selected = mode === "ebbinghaus"
-            ? candidates
-                .filter((item) => isReviewDue(item.createdAt, item.practiceRecords))
-                .sort((a, b) => getNextReviewDate(a.createdAt, a.practiceRecords).getTime()
-                    - getNextReviewDate(b.createdAt, b.practiceRecords).getTime())
-                .slice(0, errorItemId ? 1 : count)
-            : pickRandom(candidates, errorItemId ? 1 : count);
+        const reviewRecords = (item: (typeof candidates)[number]) => getReviewRecords(item.practiceRecords);
+        const reviewCandidates = candidates.filter((item) => item.correctedAt !== null);
+        const selected = mode === "daily"
+            ? [
+                ...candidates
+                    .filter((item) => item.correctedAt === null)
+                    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+                    .slice(0, Math.min(5, count))
+                    .map((item) => ({ item, purpose: "correction" as const })),
+                ...reviewCandidates
+                    .filter((item) => isReviewDue(item.correctedAt!, reviewRecords(item)))
+                    .sort((a, b) => getNextReviewDate(a.correctedAt!, reviewRecords(a)).getTime()
+                        - getNextReviewDate(b.correctedAt!, reviewRecords(b)).getTime())
+                    .slice(0, Math.max(0, Math.min(5, count) - candidates.filter((item) => item.correctedAt === null).length))
+                    .map((item) => ({ item, purpose: "review" as const })),
+            ]
+            : (mode === "ebbinghaus"
+                ? reviewCandidates
+                    .filter((item) => isReviewDue(item.correctedAt!, reviewRecords(item)))
+                    .sort((a, b) => getNextReviewDate(a.correctedAt!, reviewRecords(a)).getTime()
+                        - getNextReviewDate(b.correctedAt!, reviewRecords(b)).getTime())
+                    .slice(0, errorItemId ? 1 : count)
+                : pickRandom(reviewCandidates, errorItemId ? 1 : count))
+                .map((item) => ({ item, purpose: "review" as const }));
         if (!selected.length) {
             return mode === "ebbinghaus"
                 ? badRequest(language === "zh" ? "当前没有到期的复习题" : "No review questions are due", { reason: "NO_DUE_REVIEWS" })
-                : badRequest(language === "zh" ? "没有符合条件的题目" : "No questions match these settings");
+                : badRequest(
+                    mode === "daily"
+                        ? (language === "zh" ? "今天没有待完成的题目" : "No tasks are due today")
+                        : (language === "zh" ? "没有符合条件的题目" : "No questions match these settings"),
+                    mode === "daily" ? { reason: "NO_DAILY_TASKS" } : undefined,
+                );
         }
 
         let aiService: ReturnType<typeof getAIService> | null = null;
@@ -141,7 +178,7 @@ export async function POST(req: Request) {
                 logger.warn({ error }, "Variant service unavailable; using original questions");
             }
         }
-        const createItem = async (item: (typeof selected)[number], position: number) => {
+        const createItem = async ({ item, purpose }: (typeof selected)[number], position: number) => {
             const knowledgePoints = item.tags.map((tag) => tag.name);
             const base = {
                 errorItemId: item.id,
@@ -154,9 +191,10 @@ export async function POST(req: Request) {
                 questionText: item.questionText!,
                 answerText: item.answerText!,
                 generationMode: "original",
+                purpose,
             };
 
-            if (questionSource === "original") return base;
+            if (questionSource === "original" || purpose === "correction") return base;
             if (!aiService) return { ...base, generationMode: "fallback" };
             try {
                 const variant = await aiService.generateSimilarQuestion(

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     getServerSession: vi.fn(),
-    findUser: vi.fn(),
     transaction: vi.fn(),
     findTags: vi.fn(),
 }));
@@ -11,7 +10,6 @@ vi.mock('next-auth', () => ({ getServerSession: mocks.getServerSession }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/prisma', () => ({
     prisma: {
-        user: { findUnique: mocks.findUser },
         $transaction: mocks.transaction,
     },
 }));
@@ -21,15 +19,14 @@ import { POST } from '@/app/api/import/route';
 describe('POST /api/import', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.getServerSession.mockResolvedValue({ user: { email: 'user@example.com', role: 'user' } });
-        mocks.findUser.mockResolvedValue({ id: 'user-1', email: 'user@example.com' });
+        mocks.getServerSession.mockResolvedValue({ user: { id: 'user-1', email: 'user@example.com', role: 'user' } });
         mocks.findTags.mockResolvedValue([]);
         mocks.transaction.mockImplementation((callback) => callback({
             knowledgeTag: { findMany: mocks.findTags },
         }));
     });
 
-    it('ignores legacy review schedules and reports their count', async () => {
+    it('rejects backup formats older than version 3', async () => {
         const response = await POST(new Request('http://localhost/api/import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -44,7 +41,7 @@ describe('POST /api/import', () => {
             }),
         }));
 
-        expect(response.status).toBe(200);
-        expect((await response.json()).stats).toMatchObject({ reviewSchedulesIgnored: 2 });
+        expect(response.status).toBe(400);
+        expect(mocks.transaction).not.toHaveBeenCalled();
     });
 });

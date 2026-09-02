@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Save, RefreshCw, Loader2, Box } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { frontendLogger } from "@/lib/frontend-logger";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { TagInput } from "@/components/tag-input";
 import { NotebookSelector } from "@/components/notebook-selector";
@@ -20,14 +19,24 @@ import { UserProfile, Notebook } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { normalizeMistakeStatusForSave, type MistakeStatus } from "@/lib/mistake-status";
 import type { ReanswerQuestionResult } from "@/lib/ai/types";
-import { buildReanswerRequestBody } from "@/lib/reanswer-request";
 import { GeogebraDemo } from "@/components/geogebra-demo";
+import {
+    ERROR_SOURCES,
+    ERROR_SOURCE_LABELS,
+    ERROR_TYPES,
+    ERROR_TYPE_LABELS,
+    metadataLabel,
+    type ErrorSource,
+    type ErrorType,
+} from "@/lib/error-metadata";
 
 interface ParsedQuestionWithSubject extends ParsedQuestion {
     subjectId?: string;
     gradeSemester?: string;
     paperLevel?: string;
     geogebraCommands?: string;
+    source?: ErrorSource;
+    errorType?: ErrorType;
 }
 
 interface CorrectionEditorProps {
@@ -54,7 +63,8 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
         mistakeStatus: initialData.mistakeStatus || "unknown",
         subjectId: initialSubjectId,
         gradeSemester: "",
-        paperLevel: "a"
+        paperLevel: "a",
+        source: "homework",
     });
     const { t, language } = useLanguage();
     const [isReanswering, setIsReanswering] = useState(false);
@@ -94,13 +104,13 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
 
         setIsReanswering(true);
         try {
-            const requestBody = buildReanswerRequestBody({
+            const requestBody = {
                 questionText: data.questionText,
                 language,
                 subject: data.subject,
-                imagePreview,
-                gradeSemester: data.gradeSemester,
-            });
+                ...(imagePreview ? { imageBase64: imagePreview } : {}),
+                ...(data.gradeSemester ? { gradeSemester: data.gradeSemester } : {}),
+            };
 
             if (requestBody.imageBase64) {
                 console.log("[Reanswer] Sending image + text (Image available for mistake analysis)");
@@ -108,7 +118,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 console.log("[Reanswer] Sending text only (No image available)");
             }
 
-            frontendLogger.info('[Reanswer]', 'Sending request', { timeout: aiTimeout });
+            console.info('[Reanswer] Sending request', { timeout: aiTimeout });
 
             const result = await apiClient.post<ReanswerQuestionResult>("/api/reanswer", requestBody, { timeout: aiTimeout || 180000 });
 
@@ -275,6 +285,28 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                                     <SelectItem value="a">{t.editor.paperLevels?.a || "Paper A"}</SelectItem>
                                     <SelectItem value="b">{t.editor.paperLevels?.b || "Paper B"}</SelectItem>
                                     <SelectItem value="other">{t.editor.paperLevels?.other || "Other"}</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                            <Label>{language === "zh" ? "错题来源" : "Source"}</Label>
+                            <Select value={data.source || "homework"} onValueChange={(value) => setData({ ...data, source: value as ErrorSource })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    {ERROR_SOURCES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_SOURCE_LABELS, language)}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>{language === "zh" ? "错因（可稍后订正时填写）" : "Error cause (optional)"}</Label>
+                            <Select value={data.errorType || "unclassified"} onValueChange={(value) => setData({ ...data, errorType: value === "unclassified" ? undefined : value as ErrorType })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="unclassified">{language === "zh" ? "暂不确定" : "Not sure yet"}</SelectItem>
+                                    {ERROR_TYPES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_TYPE_LABELS, language)}</SelectItem>)}
                                 </SelectContent>
                             </Select>
                         </div>

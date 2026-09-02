@@ -21,11 +21,12 @@ describe('print preview helpers', () => {
         expect(selected.map((item) => item.id)).toEqual(['item-1', 'item-3']);
     });
 
-    it('只有在答案和解析都不显示时才预留作答空间', () => {
-        expect(shouldReserveAnswerSpace(false, false)).toBe(true);
-        expect(shouldReserveAnswerSpace(true, false)).toBe(false);
-        expect(shouldReserveAnswerSpace(false, true)).toBe(false);
-        expect(shouldReserveAnswerSpace(true, true)).toBe(false);
+    it('只在开启留白且答案和解析都不显示时预留作答空间', () => {
+        expect(shouldReserveAnswerSpace(false, false, true)).toBe(true);
+        expect(shouldReserveAnswerSpace(false, false, false)).toBe(false);
+        expect(shouldReserveAnswerSpace(true, false, true)).toBe(false);
+        expect(shouldReserveAnswerSpace(false, true, true)).toBe(false);
+        expect(shouldReserveAnswerSpace(true, true, true)).toBe(false);
     });
 
     it('局部选择时显示已选数量和总数量', () => {
@@ -62,6 +63,7 @@ describe('print preview helpers', () => {
                     errorItemId: 'error-1',
                     questionText: 'variant question',
                     generationMode: 'variant' as const,
+                    purpose: 'review' as const,
                     answer: {
                         answerInput: '4',
                         expectedAnswer: '4',
@@ -75,6 +77,7 @@ describe('print preview helpers', () => {
                     errorItemId: 'error-2',
                     questionText: 'original question',
                     generationMode: 'original' as const,
+                    purpose: 'correction' as const,
                 },
             ],
         };

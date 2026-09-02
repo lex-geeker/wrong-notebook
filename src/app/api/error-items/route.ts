@@ -9,6 +9,7 @@ import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import { parseOptionalImagePayload } from "@/lib/image-payload";
+import { ERROR_SOURCES, ERROR_TYPES } from "@/lib/error-metadata";
 
 const logger = createLogger('api:error-items');
 
@@ -16,10 +17,10 @@ export async function POST(req: Request) {
     logger.info('POST /api/error-items called');
 
     const session = await getServerSession(authOptions);
-    if (!session?.user?.email) return unauthorized("Authentication required");
+    if (!session?.user?.id) return unauthorized("Authentication required");
 
     try {
-        const user = await prisma.user.findUnique({ where: { email: session.user.email } });
+        const user = await prisma.user.findUnique({ where: { id: session.user.id } });
         if (!user) return unauthorized("No user found in DB");
 
         const body = await req.json();
@@ -36,7 +37,12 @@ export async function POST(req: Request) {
             gradeSemester,
             paperLevel,
             geogebraCommands,
+            source = "homework",
+            errorType,
         } = body;
+
+        if (!ERROR_SOURCES.includes(source)) return badRequest('Invalid source');
+        if (errorType != null && !ERROR_TYPES.includes(errorType)) return badRequest('Invalid error type');
 
         for (const value of [questionText, answerText, analysis, wrongAnswerText, mistakeAnalysis, geogebraCommands]) {
             if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 50_000)) {
@@ -184,6 +190,8 @@ export async function POST(req: Request) {
                     gradeSemester: finalGradeSemester,
                     paperLevel: paperLevel,
                     geogebraCommands: geogebraCommands || null,
+                    source,
+                    errorType: errorType || null,
                     masteryLevel: 0,
                     tags: {
                         connect: tagConnections,

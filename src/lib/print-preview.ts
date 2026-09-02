@@ -33,8 +33,12 @@ export function getSelectedPrintItems<T extends PrintSelectableItem>(
     return items.filter((item) => selectedIds.has(item.id));
 }
 
-export function shouldReserveAnswerSpace(showAnswers: boolean, showAnalysis: boolean): boolean {
-    return !showAnswers && !showAnalysis;
+export function shouldReserveAnswerSpace(
+    showAnswers: boolean,
+    showAnalysis: boolean,
+    reserveAnswerSpace: boolean,
+): boolean {
+    return reserveAnswerSpace && !showAnswers && !showAnalysis;
 }
 
 export function getPrintPreviewCountLabel(totalCount: number, selectedCount: number): string {

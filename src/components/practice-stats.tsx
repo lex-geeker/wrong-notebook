@@ -3,66 +3,14 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
-import { Loader2, TrendingUp, BookOpen, Target } from "lucide-react";
+import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { Loader2, BookOpen, Target } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { PracticeStatsData } from "@/types/api";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
-const DIFFICULTY_COLORS: Record<string, string> = {
-    'easy': '#4ade80',   // Green-400
-    'medium': '#facc15', // Yellow-400
-    'hard': '#fb923c',   // Orange-400
-    'harder': '#f87171', // Red-400
-    'Unknown': '#94a3b8' // Slate-400
-};
-
-interface ChartPayloadEntry {
-    color?: string;
-    name?: string;
-    value?: number | string;
-}
-
-interface CustomTooltipProps {
-    active?: boolean;
-    payload?: ChartPayloadEntry[];
-    label?: string | number;
-    t: ReturnType<typeof useLanguage>["t"];
-}
-
-const CustomTooltip = ({ active, payload, label, t }: CustomTooltipProps) => {
-    if (active && payload && payload.length) {
-        return (
-            <div className="bg-background border rounded-lg shadow-lg p-3 text-sm">
-                <p className="font-medium mb-2">{label}</p>
-                {payload.map((entry, index) => (
-                    <div key={index} className="flex items-center gap-2 mb-1 last:mb-0">
-                        <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: entry.color }}
-                        />
-                        <span className="text-muted-foreground">
-                            {entry.name}:
-                        </span>
-                        <span className="font-medium">
-                            {entry.value}
-                        </span>
-                    </div>
-                ))}
-                <div className="mt-2 pt-2 border-t flex justify-between gap-4">
-                    <span className="text-muted-foreground">{t.stats?.total || "Total"}:</span>
-                    <span className="font-bold">
-                        {payload.reduce((acc, curr) => acc + (typeof curr.value === 'number' ? curr.value : 0), 0)}
-                    </span>
-                </div>
-            </div>
-        );
-    }
-    return null;
-};
-
 export function PracticeStats() {
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
     const [stats, setStats] = useState<PracticeStatsData | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -90,21 +38,12 @@ export function PracticeStats() {
         return null; // Don't show if no data
     }
 
-    // Helper to translate difficulty
-    const getDifficultyLabel = (key: string) => {
-        const labels = t.practice?.difficulty;
-        return labels?.[key as keyof typeof labels] || key;
-    };
-
-    // Get unique difficulties for the bar chart
-    const difficulties = stats.difficultyStats.map(d => d.name);
-
     return (
         <div className="space-y-6">
             <h2 className="text-2xl font-bold tracking-tight">{t.stats?.title || "Practice Statistics"}</h2>
 
             {/* Overview Cards */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">
@@ -130,22 +69,11 @@ export function PracticeStats() {
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">
-                            {t.stats?.activeDays || "Active Days (6m)"}
-                        </CardTitle>
-                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{stats.activityStats.filter(d => d.total > 0).length}</div>
-                    </CardContent>
-                </Card>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div>
                 {/* Subject Distribution */}
-                <Card className="col-span-2 md:col-span-1">
+                <Card>
                     <CardHeader>
                         <CardTitle>{t.stats?.subjectDistribution || "Subject Distribution"}</CardTitle>
                     </CardHeader>
@@ -173,49 +101,6 @@ export function PracticeStats() {
                     </CardContent>
                 </Card>
 
-                {/* Monthly Activity with Difficulty Stack */}
-                <Card className="col-span-2 md:col-span-1">
-                    <CardHeader>
-                        <CardTitle>{t.stats?.weeklyTrend || "Monthly Trend"}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={stats.activityStats} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                <XAxis
-                                    dataKey="date"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                                    dy={10}
-                                />
-                                <YAxis
-                                    allowDecimals={false}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                                />
-                                <Tooltip content={<CustomTooltip t={t} />} cursor={{ fill: 'transparent' }} />
-                                <Legend
-                                    iconType="circle"
-                                    iconSize={8}
-                                    wrapperStyle={{ paddingTop: '20px' }}
-                                />
-                                {difficulties.map((diff, index) => (
-                                    <Bar
-                                        key={diff}
-                                        dataKey={diff}
-                                        name={getDifficultyLabel(diff)}
-                                        stackId="a"
-                                        fill={DIFFICULTY_COLORS[diff] || COLORS[index % COLORS.length]}
-                                        radius={index === difficulties.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                                        barSize={32}
-                                    />
-                                ))}
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
             </div>
         </div>
     );

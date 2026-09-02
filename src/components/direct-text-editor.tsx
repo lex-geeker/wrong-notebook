@@ -13,6 +13,15 @@ import { NotebookSelector } from "@/components/notebook-selector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import type { MistakeStatus } from "@/lib/mistake-status";
+import {
+    ERROR_SOURCES,
+    ERROR_SOURCE_LABELS,
+    ERROR_TYPES,
+    ERROR_TYPE_LABELS,
+    metadataLabel,
+    type ErrorSource,
+    type ErrorType,
+} from "@/lib/error-metadata";
 
 interface DirectTextEditorProps {
     onSubmit: (data: {
@@ -26,6 +35,8 @@ interface DirectTextEditorProps {
         subjectId: string;
         gradeSemester?: string;
         paperLevel?: string;
+        source: ErrorSource;
+        errorType?: ErrorType;
     }) => Promise<void>;
     defaultNotebookId?: string;
     defaultNotebookName?: string;
@@ -33,7 +44,7 @@ interface DirectTextEditorProps {
 }
 
 export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookName, isSaving }: DirectTextEditorProps) {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const [previewField, setPreviewField] = useState<string | null>(null);
 
     const [questionText, setQuestionText] = useState("");
@@ -46,6 +57,8 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
     const [subjectId, setSubjectId] = useState(defaultNotebookId || "");
     const [gradeSemester, setGradeSemester] = useState("");
     const [paperLevel, setPaperLevel] = useState("a");
+    const [source, setSource] = useState<ErrorSource>("homework");
+    const [errorType, setErrorType] = useState<ErrorType | undefined>();
 
     const handleSubmit = async () => {
         if (!questionText.trim()) return;
@@ -65,6 +78,8 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
             subjectId,
             gradeSemester: gradeSemester || undefined,
             paperLevel,
+            source,
+            errorType,
         });
     };
 
@@ -78,6 +93,8 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
         setKnowledgePoints([]);
         setGradeSemester("");
         setPaperLevel("a");
+        setSource("homework");
+        setErrorType(undefined);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -154,6 +171,28 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
                         <RotateCcw className="h-4 w-4 mr-1" />
                         重置
                     </Button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                        <Label>{language === "zh" ? "错题来源" : "Source"}</Label>
+                        <Select value={source} onValueChange={(value) => setSource(value as ErrorSource)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                {ERROR_SOURCES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_SOURCE_LABELS, language)}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <Label>{language === "zh" ? "错因（可稍后订正时填写）" : "Error cause (optional)"}</Label>
+                        <Select value={errorType || "unclassified"} onValueChange={(value) => setErrorType(value === "unclassified" ? undefined : value as ErrorType)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="unclassified">{language === "zh" ? "暂不确定" : "Not sure yet"}</SelectItem>
+                                {ERROR_TYPES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_TYPE_LABELS, language)}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
 
                 {/* Notebook & Grade Selection */}

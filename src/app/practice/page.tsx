@@ -30,6 +30,12 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { ApiError, apiClient } from "@/lib/api-client";
 import { PRACTICE_COUNTS, type PracticeCount, type PracticeMode, type PracticeSource } from "@/lib/practice";
 import type { Notebook, PracticeSessionData, PracticeSessionSummary } from "@/types/api";
+import {
+    ERROR_TYPES,
+    ERROR_TYPE_LABELS,
+    metadataLabel,
+    type ErrorType,
+} from "@/lib/error-metadata";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +44,12 @@ type AnswerResponse = {
     answer: NonNullable<PracticeSessionData["items"][number]["answer"]>;
     masteryLevel: number | null;
     endedAt: string | null;
+};
+
+type PaperResult = {
+    isCorrect?: boolean;
+    errorType?: ErrorType;
+    corrected?: boolean;
 };
 
 function apiMessage(cause: unknown, fallback: string) {
@@ -76,7 +88,7 @@ function PracticeContent() {
     const [loading, setLoading] = useState(paperMode);
     const [submitting, setSubmitting] = useState(false);
     const [showReview, setShowReview] = useState(false);
-    const [paperResults, setPaperResults] = useState<Record<string, boolean>>({});
+    const [paperResults, setPaperResults] = useState<Record<string, PaperResult>>({});
     const [paperSaved, setPaperSaved] = useState(false);
     const [error, setError] = useState("");
 
@@ -95,7 +107,7 @@ function PracticeContent() {
                     setSession(data);
                     setPaperResults(Object.fromEntries(data.items
                         .filter((item) => item.answer?.isCorrect !== null && item.answer?.isCorrect !== undefined)
-                        .map((item) => [item.id, item.answer!.isCorrect!] as const)));
+                        .map((item) => [item.id, { isCorrect: item.answer!.isCorrect! }] as const)));
                     setPaperSaved(Boolean(data.endedAt));
                 })
                 .catch((cause: unknown) => setError(apiMessage(cause, language === "zh" ? "无法加载纸上练习。" : "Could not load paper practice.")))
@@ -114,6 +126,7 @@ function PracticeContent() {
         random: copy.random,
         unmastered: copy.unmastered,
         ebbinghaus: copy.ebbinghaus,
+        daily: language === "zh" ? "今日任务" : "Daily task",
         knowledge: copy.legacyKnowledge,
     };
 
@@ -152,7 +165,7 @@ function PracticeContent() {
             if (includeAnswers) {
                 setPaperResults(Object.fromEntries(data.items
                     .filter((item) => item.answer?.isCorrect !== null && item.answer?.isCorrect !== undefined)
-                    .map((item) => [item.id, item.answer!.isCorrect!] as const)));
+                    .map((item) => [item.id, { isCorrect: item.answer!.isCorrect! }] as const)));
                 setPaperSaved(Boolean(data.endedAt));
             }
             const next = data.items.findIndex((item) => !item.answer || item.answer.isCorrect === null);
@@ -166,12 +179,17 @@ function PracticeContent() {
     }
 
     async function savePaperResults() {
-        if (!session || !session.items.every((item) => item.id in paperResults)) return;
+        if (!session || !session.items.every((item) => {
+            const result = paperResults[item.id];
+            return typeof result?.isCorrect === "boolean"
+                && (!(item.purpose === "correction" || !result.isCorrect) || Boolean(result.errorType))
+                && (result.isCorrect || result.corrected === true);
+        })) return;
         setSubmitting(true);
         setError("");
         try {
             const data = await apiClient.patch<PracticeSessionData>(`/api/practice/sessions/${session.id}`, {
-                paperResults: session.items.map((item) => ({ itemId: item.id, isCorrect: paperResults[item.id] })),
+                paperResults: session.items.map((item) => ({ itemId: item.id, ...paperResults[item.id] })),
             });
             setSession(data);
             setPaperSaved(true);
@@ -254,9 +272,14 @@ function PracticeContent() {
     }
 
     if (paperMode && session) {
-        const markedCount = session.items.filter((item) => item.id in paperResults).length;
-        const allMarked = markedCount === session.itemCount;
-        const correctCount = Object.values(paperResults).filter(Boolean).length;
+        const markedCount = session.items.filter((item) => typeof paperResults[item.id]?.isCorrect === "boolean").length;
+        const allMarked = session.items.every((item) => {
+            const result = paperResults[item.id];
+            return typeof result?.isCorrect === "boolean"
+                && (!(item.purpose === "correction" || !result.isCorrect) || Boolean(result.errorType))
+                && (result.isCorrect || result.corrected === true);
+        });
+        const correctCount = Object.values(paperResults).filter((result) => result.isCorrect).length;
 
         if (paperSaved) {
             return (
@@ -293,14 +316,16 @@ function PracticeContent() {
 
                 <div className="mx-auto max-w-4xl divide-y border-b px-4">
                     {session.items.map((item, index) => {
-                        const marked = item.id in paperResults;
+                        const result = paperResults[item.id];
+                        const marked = typeof result?.isCorrect === "boolean";
+                        const needsCause = item.purpose === "correction" || result?.isCorrect === false;
                         return (
                             <section key={item.id} className="py-7">
                                 <div className="mb-4 flex items-center justify-between gap-3">
                                     <h2 className="font-semibold">{copy.question} {index + 1}</h2>
                                     {marked && (
-                                        <Badge variant="outline" className={paperResults[item.id] ? "text-green-700" : "text-red-700"}>
-                                            {paperResults[item.id] ? copy.paperCorrect : copy.paperIncorrect}
+                                        <Badge variant="outline" className={result.isCorrect ? "text-green-700" : "text-red-700"}>
+                                            {result.isCorrect ? copy.paperCorrect : copy.paperIncorrect}
                                         </Badge>
                                     )}
                                 </div>
@@ -312,21 +337,54 @@ function PracticeContent() {
                                 <div className="mt-4 grid grid-cols-2 gap-3" role="group" aria-label={`${copy.question} ${index + 1}`}>
                                     <Button
                                         type="button"
-                                        variant={marked && !paperResults[item.id] ? "destructive" : "outline"}
-                                        aria-pressed={marked && !paperResults[item.id]}
-                                        onClick={() => setPaperResults((current) => ({ ...current, [item.id]: false }))}
+                                        variant={marked && result.isCorrect === false ? "destructive" : "outline"}
+                                        aria-pressed={marked && result.isCorrect === false}
+                                        onClick={() => setPaperResults((current) => ({ ...current, [item.id]: { ...current[item.id], isCorrect: false } }))}
                                     >
                                         <XCircle className="mr-2 h-4 w-4" />{copy.paperIncorrect}
                                     </Button>
                                     <Button
                                         type="button"
-                                        variant={marked && paperResults[item.id] ? "default" : "outline"}
-                                        aria-pressed={marked && paperResults[item.id]}
-                                        onClick={() => setPaperResults((current) => ({ ...current, [item.id]: true }))}
+                                        variant={marked && result.isCorrect === true ? "default" : "outline"}
+                                        aria-pressed={marked && result.isCorrect === true}
+                                        onClick={() => setPaperResults((current) => ({ ...current, [item.id]: { ...current[item.id], isCorrect: true } }))}
                                     >
                                         <CheckCircle2 className="mr-2 h-4 w-4" />{copy.paperCorrect}
                                     </Button>
                                 </div>
+                                {needsCause && (
+                                    <div className="mt-4 space-y-4 rounded-md border bg-muted/30 p-4">
+                                        <div className="space-y-2">
+                                            <Label htmlFor={`error-type-${item.id}`}>{language === "zh" ? "这题为什么会错？" : "Why was this missed?"}</Label>
+                                            <Select
+                                                value={result?.errorType}
+                                                onValueChange={(value) => setPaperResults((current) => ({
+                                                    ...current,
+                                                    [item.id]: { ...current[item.id], errorType: value as ErrorType },
+                                                }))}
+                                            >
+                                                <SelectTrigger id={`error-type-${item.id}`}><SelectValue placeholder={language === "zh" ? "选择错因" : "Select a cause"} /></SelectTrigger>
+                                                <SelectContent>
+                                                    {ERROR_TYPES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_TYPE_LABELS, language)}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        {result?.isCorrect === false && (
+                                            <label className="flex cursor-pointer items-start gap-3 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={result.corrected === true}
+                                                    onChange={(event) => setPaperResults((current) => ({
+                                                        ...current,
+                                                        [item.id]: { ...current[item.id], corrected: event.target.checked },
+                                                    }))}
+                                                    className="mt-0.5 h-4 w-4 rounded border-input"
+                                                />
+                                                <span>{language === "zh" ? "孩子已经看懂并在纸上完成订正" : "The correction has been completed on paper"}</span>
+                                            </label>
+                                        )}
+                                    </div>
+                                )}
                             </section>
                         );
                     })}
@@ -654,7 +712,9 @@ function PracticeContent() {
                                 <button
                                     key={item.id}
                                     type="button"
-                                    onClick={() => openSession(item.id)}
+                                    onClick={() => item.mode === "daily" && !item.endedAt
+                                        ? router.push(`/print-preview?sessionId=${item.id}&paper=1`)
+                                        : openSession(item.id)}
                                     className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                                 >
                                     <div className="min-w-0 flex-1">

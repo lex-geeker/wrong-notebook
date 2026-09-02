@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     },
     mockSession: {
         user: {
+            id: 'user-1',
             email: 'test@example.com',
             name: 'Test User',
         },
@@ -269,6 +270,7 @@ describe('/api/user', () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    id: 'admin-1',
                     email: 'admin@localhost',
                     name: 'Admin',
                     role: 'admin',
@@ -302,6 +304,7 @@ describe('/api/user', () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    id: 'user-1',
                     email: 'user@example.com',
                     name: 'Normal User',
                     role: 'user',
@@ -359,10 +362,11 @@ describe('/api/user', () => {
             expect(data.message).toBe('Unauthorized');
         });
 
-        it('session 中没有 email 的用户应该被拒绝', async () => {
+        it('session 中没有 id 的用户应该被拒绝', async () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    email: 'no-id@example.com',
                     name: 'No Email User',
                 },
                 expires: '2025-12-31',
@@ -379,6 +383,7 @@ describe('/api/user', () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    id: 'admin-1',
                     email: 'admin@localhost',
                     name: 'Admin',
                     role: 'admin',
@@ -412,6 +417,7 @@ describe('/api/user', () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    id: 'user-1',
                     email: 'user@example.com',
                     name: 'Normal User',
                     role: 'user',
@@ -442,10 +448,11 @@ describe('/api/user', () => {
     });
 
     describe('管理员特有功能', () => {
-        it('管理员修改信息时使用的是自己的 session email', async () => {
+        it('管理员修改信息时使用自己的 session id', async () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    id: 'admin-1',
                     email: 'admin@localhost',
                     name: 'Admin',
                     role: 'admin',
@@ -469,15 +476,15 @@ describe('/api/user', () => {
 
             await PATCH(request);
 
-            // 验证更新操作使用了 session 中的 email
             const updateCall = mocks.mockPrismaUser.update.mock.calls[0][0];
-            expect(updateCall.where.email).toBe('admin@localhost');
+            expect(updateCall.where.id).toBe('admin-1');
         });
 
-        it('普通用户修改信息时使用的是自己的 session email', async () => {
+        it('普通用户修改信息时使用自己的 session id', async () => {
             const { getServerSession } = await import('next-auth');
             vi.mocked(getServerSession).mockResolvedValue({
                 user: {
+                    id: 'user-1',
                     email: 'normaluser@example.com',
                     name: 'Normal User',
                     role: 'user',
@@ -501,9 +508,8 @@ describe('/api/user', () => {
 
             await PATCH(request);
 
-            // 验证更新操作使用了 session 中的 email（不能修改其他用户）
             const updateCall = mocks.mockPrismaUser.update.mock.calls[0][0];
-            expect(updateCall.where.email).toBe('normaluser@example.com');
+            expect(updateCall.where.id).toBe('user-1');
         });
     });
 });

@@ -12,15 +12,17 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient, ApiError } from "@/lib/api-client";
 import type { ParsedQuestion } from "@/lib/ai";
 import { processImageFile } from "@/lib/image-utils";
-import { frontendLogger } from "@/lib/frontend-logger";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import type { AnalyzeResponse, AppConfig, Notebook } from "@/types/api";
+import type { ErrorSource, ErrorType } from "@/lib/error-metadata";
 
 type InputMode = "image" | "text" | "direct";
 type SaveData = ParsedQuestion & {
     subjectId?: string;
     gradeSemester?: string;
     paperLevel?: string;
+    source?: ErrorSource;
+    errorType?: ErrorType;
 };
 type DirectSaveData = {
     questionText: string;
@@ -33,6 +35,8 @@ type DirectSaveData = {
     subjectId: string;
     gradeSemester?: string;
     paperLevel?: string;
+    source: ErrorSource;
+    errorType?: ErrorType;
 };
 
 interface ErrorEntryFlowProps {
@@ -65,9 +69,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
         ]).then(([notebookData, configData]) => {
             setNotebooks(notebookData);
             setConfig(configData);
-        }).catch(error => frontendLogger.error('[ErrorEntryFlow]', 'Failed to load entry config', {
-            error: error instanceof Error ? error.message : String(error),
-        }));
+        }).catch(error => console.error('[ErrorEntryFlow] Failed to load entry config', error));
     }, []);
 
     useEffect(() => () => {
@@ -168,7 +170,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
             subjectId,
             originalImageUrl: image || "",
         });
-        if (result.duplicate) frontendLogger.info('[ErrorEntryFlow]', 'Duplicate submission reused');
+        if (result.duplicate) console.info('[ErrorEntryFlow] Duplicate submission reused');
         alert(t.common.messages?.saveSuccess || "Saved successfully");
         setParsedData(null);
         setCurrentImage(null);
@@ -180,7 +182,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
         try {
             await save(data, currentImage);
         } catch (error) {
-            frontendLogger.error('[ErrorEntryFlow]', 'Save failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[ErrorEntryFlow] Save failed', error);
             alert(t.common.messages?.saveFailed || "Save failed");
         }
     };
@@ -195,7 +197,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
                 requiresImage: false,
             }, null);
         } catch (error) {
-            frontendLogger.error('[ErrorEntryFlow]', 'Direct save failed', { error: error instanceof Error ? error.message : String(error) });
+            console.error('[ErrorEntryFlow] Direct save failed', error);
             alert(t.common.messages?.saveFailed || "Save failed");
         } finally {
             setAnalysisStep("idle");

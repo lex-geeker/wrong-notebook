@@ -7,14 +7,3 @@ export function calculateNextReviewDate(currentStage: number, from = new Date())
     const interval = REVIEW_INTERVALS[currentStage] || 30; // Default to 30 if stage exceeds
     return addDays(from, interval);
 }
-
-export function getReviewStageDescription(stage: number): string {
-    switch (stage) {
-        case 0: return "First Review (1 day)";
-        case 1: return "Second Review (2 days)";
-        case 2: return "Third Review (4 days)";
-        case 3: return "Fourth Review (7 days)";
-        case 4: return "Fifth Review (15 days)";
-        default: return "Maintenance Review (30 days)";
-    }
-}

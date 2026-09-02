@@ -27,16 +27,6 @@ export const ParsedQuestionSchema = z.object({
 export type ParsedQuestionFromSchema = z.infer<typeof ParsedQuestionSchema>;
 
 /**
- * Validates and parses AI response JSON
- * @param data - Raw JSON data from AI
- * @returns Validated ParsedQuestion object
- * @throws ZodError if validation fails
- */
-export function validateParsedQuestion(data: unknown): ParsedQuestionFromSchema {
-    return ParsedQuestionSchema.parse(data);
-}
-
-/**
  * Safe validation that returns success/error object
  * @param data - Raw JSON data from AI
  */
