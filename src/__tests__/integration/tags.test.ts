@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
         findMany: vi.fn(),
         findFirst: vi.fn(),
         create: vi.fn(),
+        count: vi.fn(),
     },
     mockGetServerSession: vi.fn(),
 }));
@@ -197,132 +198,76 @@ describe('/api/tags', () => {
     });
 
     describe('GET /api/tags/suggestions (标签建议)', () => {
-        // Helper to create mock tag data (simulates KnowledgeTag from DB)
-        const createMockTag = (name: string, isSystem = true, hasChildren = false) => ({
-            id: `tag-${name}`,
-            name,
-            parentId: null,
-            userId: null,
-            isSystem,
-            children: hasChildren ? [{ id: 'child' }] : [],
-        });
-
         beforeEach(() => {
-            // Default: return empty tags
             mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue([]);
+            mocks.mockPrismaKnowledgeTag.count.mockResolvedValue(0);
         });
 
-        it('应该返回所有叶子标签建议（无搜索词）', async () => {
-            const mockTags = [
-                createMockTag('一元一次方程'),
-                createMockTag('二元一次方程'),
-                createMockTag('父节点', true, true), // 有子节点，不应返回
-            ];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
+        it('返回数据库筛选后的叶子标签和总数', async () => {
+            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue([
+                { name: '一元一次方程' },
+                { name: '二元一次方程' },
+            ]);
+            mocks.mockPrismaKnowledgeTag.count.mockResolvedValue(2);
 
             const request = new Request('http://localhost/api/tags/suggestions');
             const response = await GET_SUGGESTIONS(request);
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.suggestions).toBeDefined();
-            expect(Array.isArray(data.suggestions)).toBe(true);
-            expect(data.suggestions).toContain('一元一次方程');
-            expect(data.suggestions).toContain('二元一次方程');
-            expect(data.suggestions).not.toContain('父节点');
+            expect(data).toEqual({ suggestions: ['一元一次方程', '二元一次方程'], total: 2 });
         });
 
-        it('应该根据搜索词过滤标签', async () => {
-            const mockTags = [
-                createMockTag('一元一次方程'),
-                createMockTag('二元一次方程'),
-                createMockTag('函数'),
-            ];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
+        it('把搜索、叶子节点、可见范围和数量限制下推数据库', async () => {
+            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue([{ name: '一元一次方程' }]);
+            mocks.mockPrismaKnowledgeTag.count.mockResolvedValue(1);
 
-            const request = new Request('http://localhost/api/tags/suggestions?q=方程');
+            const request = new Request('http://localhost/api/tags/suggestions?q=方程&subject=math');
             const response = await GET_SUGGESTIONS(request);
-            const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.suggestions).toContain('一元一次方程');
-            expect(data.suggestions).toContain('二元一次方程');
-            expect(data.suggestions).not.toContain('函数');
-        });
-
-        it('应该支持大小写不敏感搜索', async () => {
-            const mockTags = [
-                createMockTag('Function'),
-                createMockTag('Array'),
-            ];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
-
-            const request = new Request('http://localhost/api/tags/suggestions?q=function');
-            const response = await GET_SUGGESTIONS(request);
-            const data = await response.json();
-
-            expect(response.status).toBe(200);
-            expect(data.suggestions).toContain('Function');
-        });
-
-        it('应该返回系统标签和用户自定义标签', async () => {
-            mocks.mockGetServerSession.mockResolvedValue({
-                user: { id: 'user-1' }
+            expect(mocks.mockPrismaKnowledgeTag.findMany).toHaveBeenCalledWith({
+                where: {
+                    subject: 'math',
+                    name: { contains: '方程' },
+                    children: { none: {} },
+                    OR: [
+                        { isSystem: true, userId: null },
+                        { isSystem: false, userId: 'user-1' },
+                    ],
+                },
+                select: { name: true },
+                take: 30,
             });
-
-            const mockTags = [
-                createMockTag('系统标签', true),
-                { ...createMockTag('自定义标签', false), userId: 'user-1' },
-            ];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
-
-            const request = new Request('http://localhost/api/tags/suggestions');
-            const response = await GET_SUGGESTIONS(request);
-            const data = await response.json();
-
-            expect(response.status).toBe(200);
-            expect(data.suggestions).toContain('系统标签');
-            expect(data.suggestions).toContain('自定义标签');
+            expect(mocks.mockPrismaKnowledgeTag.count).toHaveBeenCalledWith({
+                where: expect.objectContaining({ name: { contains: '方程' }, children: { none: {} } }),
+            });
         });
 
-        it('应该限制返回结果数量（最多 30 个）', async () => {
-            // 创建超过 30 个标签
-            const manyTags = Array.from({ length: 50 }, (_, i) =>
-                createMockTag(`标签${i + 1}`)
-            );
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(manyTags);
+        it('在 take 前按学段限制系统标签，同时保留用户自定义标签', async () => {
+            mocks.mockPrismaKnowledgeTag.findMany
+                .mockResolvedValueOnce([{ id: 'grade-7' }])
+                .mockResolvedValueOnce([{ id: 'chapter-1' }])
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{ name: '一元一次方程' }, { name: '我的标签' }]);
+            mocks.mockPrismaKnowledgeTag.count.mockResolvedValue(2);
 
-            const request = new Request('http://localhost/api/tags/suggestions');
+            const request = new Request('http://localhost/api/tags/suggestions?stage=junior_high&subject=math');
             const response = await GET_SUGGESTIONS(request);
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.suggestions.length).toBeLessThanOrEqual(30);
-        });
-
-        it('应该处理空搜索词', async () => {
-            const mockTags = [createMockTag('测试标签')];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
-
-            const request = new Request('http://localhost/api/tags/suggestions?q=');
-            const response = await GET_SUGGESTIONS(request);
-            const data = await response.json();
-
-            expect(response.status).toBe(200);
-            expect(data.suggestions.length).toBeGreaterThan(0);
-        });
-
-        it('应该处理无匹配结果', async () => {
-            const mockTags = [createMockTag('一元一次方程')];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
-
-            const request = new Request('http://localhost/api/tags/suggestions?q=不存在的标签xyz');
-            const response = await GET_SUGGESTIONS(request);
-            const data = await response.json();
-
-            expect(response.status).toBe(200);
-            expect(data.suggestions).toEqual([]);
-            expect(data.total).toBe(0);
+            expect(data.suggestions).toEqual(['一元一次方程', '我的标签']);
+            expect(mocks.mockPrismaKnowledgeTag.findMany).toHaveBeenLastCalledWith({
+                where: expect.objectContaining({
+                    OR: [
+                        { isSystem: true, userId: null, id: { in: ['grade-7', 'chapter-1'] } },
+                        { isSystem: false, userId: 'user-1' },
+                    ],
+                }),
+                select: { name: true },
+                take: 30,
+            });
         });
 
         it('应该处理数据库错误', async () => {
@@ -336,25 +281,6 @@ describe('/api/tags', () => {
 
             expect(response.status).toBe(500);
             expect(data.message).toBe('Failed to get tag suggestions');
-        });
-
-        it('应该支持部分匹配', async () => {
-            const mockTags = [
-                createMockTag('一元一次方程'),
-                createMockTag('二元一次方程'),
-                createMockTag('一元二次方程'),
-                createMockTag('函数'),
-            ];
-            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
-
-            const request = new Request('http://localhost/api/tags/suggestions?q=一次');
-            const response = await GET_SUGGESTIONS(request);
-            const data = await response.json();
-
-            expect(response.status).toBe(200);
-            expect(data.suggestions).toContain('一元一次方程');
-            expect(data.suggestions).toContain('二元一次方程');
-            expect(data.suggestions).not.toContain('函数');
         });
     });
 });

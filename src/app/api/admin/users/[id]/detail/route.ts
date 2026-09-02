@@ -39,59 +39,54 @@ export async function GET(
             return notFound("User not found")
         }
 
-        // 错题本列表及每个本子的错题数
-        const notebooks = await prisma.subject.findMany({
-            where: { userId: id },
-            select: {
-                id: true,
-                name: true,
-                _count: {
-                    select: { errorItems: true }
-                }
-            },
-            orderBy: { createdAt: 'asc' }
-        })
-
-        // 错题总数
-        const errorCount = await prisma.errorItem.count({
-            where: { userId: id }
-        })
-
-        // 练习记录总数
-        const practiceCount = await prisma.practiceRecord.count({
-            where: { userId: id }
-        })
-
-        // 错题本总数
-        const notebookCount = notebooks.length
-
-        // 最近 7 天录入的错题数
         const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-        const recent7DaysCount = await prisma.errorItem.count({
-            where: {
-                userId: id,
-                createdAt: { gte: sevenDaysAgo }
-            }
-        })
+        const [notebooks, errorCount, practiceCount, recent7DaysCount, masteryStats, subjectErrorCounts, recentErrorItems] = await Promise.all([
+            prisma.subject.findMany({
+                where: { userId: id },
+                select: {
+                    id: true,
+                    name: true,
+                    _count: { select: { errorItems: true } }
+                },
+                orderBy: { createdAt: 'asc' }
+            }),
+            prisma.errorItem.count({ where: { userId: id } }),
+            prisma.practiceRecord.count({ where: { userId: id } }),
+            prisma.errorItem.count({
+                where: { userId: id, createdAt: { gte: sevenDaysAgo } }
+            }),
+            prisma.errorItem.groupBy({
+                by: ['masteryLevel'],
+                where: { userId: id },
+                _count: { id: true }
+            }),
+            prisma.errorItem.groupBy({
+                by: ['subjectId'],
+                where: { userId: id },
+                _count: { id: true }
+            }),
+            prisma.errorItem.findMany({
+                where: { userId: id },
+                select: {
+                    id: true,
+                    questionText: true,
+                    ocrText: true,
+                    masteryLevel: true,
+                    createdAt: true,
+                    subject: { select: { name: true } }
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 20
+            }),
+        ])
 
-        // 掌握度分布
-        const masteryStats = await prisma.errorItem.groupBy({
-            by: ['masteryLevel'],
-            where: { userId: id },
-            _count: { id: true }
-        })
+        const notebookCount = notebooks.length
         const masteryDistribution = {
             new: masteryStats.find(m => m.masteryLevel === 0)?._count.id || 0,
             reviewing: masteryStats.find(m => m.masteryLevel === 1)?._count.id || 0,
             mastered: masteryStats.find(m => m.masteryLevel === 2)?._count.id || 0,
         }
 
-        // 学科错题分布（按 subjectId 分组）
-        const subjectErrorCounts = await prisma.errorItem.groupBy({
-            by: ['subjectId'],
-            where: { userId: id },
-            _count: { id: true }
-        })
         const subjectIds = subjectErrorCounts.map(s => s.subjectId).filter(Boolean) as string[]
         const subjectNames = await prisma.subject.findMany({
             where: { id: { in: subjectIds } },
@@ -104,23 +99,6 @@ export async function GET(
                 name: subjectNameMap.get(s.subjectId!) || "未知",
                 count: s._count.id
             }))
-
-        // 最近录入的错题（最新 20 条）
-        const recentErrorItems = await prisma.errorItem.findMany({
-            where: { userId: id },
-            select: {
-                id: true,
-                questionText: true,
-                ocrText: true,
-                masteryLevel: true,
-                createdAt: true,
-                subject: {
-                    select: { name: true }
-                }
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 20
-        })
 
         return NextResponse.json({
             user,

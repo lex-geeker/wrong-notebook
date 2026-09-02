@@ -67,7 +67,9 @@ import { POST } from '@/app/api/error-items/route';
 import { GET as GET_ITEM, PUT, DELETE as DELETE_ITEM } from '@/app/api/error-items/[id]/route';
 import { GET as GET_FILTER_OPTIONS } from '@/app/api/error-items/filter-options/route';
 import { GET as GET_LIST } from '@/app/api/error-items/list/route';
+import { resolveKnowledgeTagConnections } from '@/lib/tag-recognition';
 import { getServerSession } from 'next-auth';
+import { Prisma } from '@prisma/client';
 
 describe('/api/error-items', () => {
     const mockUser = {
@@ -111,6 +113,50 @@ describe('/api/error-items', () => {
             return args?.where?.id && args?.where?.userId ? { id: args.where.id } : null;
         });
         mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue([]);
+    });
+
+    describe('知识点标签解析', () => {
+        it('只解析一次父标签，批量复用已有标签并只创建缺失标签', async () => {
+            mocks.mockPrismaKnowledgeTag.findMany
+                .mockResolvedValueOnce([{ id: 'grade-7', name: '七年级上' }])
+                .mockResolvedValueOnce([{ id: 'tag-equation', name: '方程' }]);
+            mocks.mockPrismaKnowledgeTag.create.mockResolvedValue({ id: 'tag-function', name: '函数' });
+
+            const connections = await resolveKnowledgeTagConnections({
+                userId: 'user-123',
+                gradeSemester: '七年级上',
+                subjectKey: 'math',
+                tagNames: [' 方程 ', '函数', '函数', ' '],
+            });
+
+            expect(connections).toEqual([{ id: 'tag-equation' }, { id: 'tag-function' }]);
+            expect(mocks.mockPrismaKnowledgeTag.findMany).toHaveBeenCalledTimes(2);
+            expect(mocks.mockPrismaKnowledgeTag.create).toHaveBeenCalledOnce();
+            expect(mocks.mockPrismaKnowledgeTag.create).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({ name: '函数', parentId: 'grade-7' }),
+            }));
+        });
+
+        it('唯一索引冲突后重新读取并发创建的标签', async () => {
+            mocks.mockPrismaKnowledgeTag.findMany
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([]);
+            mocks.mockPrismaKnowledgeTag.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
+                'Unique constraint failed',
+                { code: 'P2002', clientVersion: 'test' },
+            ));
+            mocks.mockPrismaKnowledgeTag.findFirst.mockResolvedValue({ id: 'tag-raced', name: '函数' });
+
+            await expect(resolveKnowledgeTagConnections({
+                userId: 'user-123',
+                subjectKey: 'math',
+                tagNames: ['函数'],
+            })).resolves.toEqual([{ id: 'tag-raced' }]);
+
+            expect(mocks.mockPrismaKnowledgeTag.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+                where: expect.objectContaining({ name: '函数' }),
+            }));
+        });
     });
 
     describe('POST /api/error-items (创建错题)', () => {
@@ -460,22 +506,13 @@ describe('/api/error-items', () => {
 
         it('应该从当前错题本提取原始年级和知识点', async () => {
             mocks.mockPrismaErrorItem.findMany.mockResolvedValue([
-                {
-                    gradeSemester: '三年级上',
-                    tags: [{ name: '分数加法' }],
-                },
-                {
-                    gradeSemester: '三年级上',
-                    tags: [{ name: '旧知识点' }, { name: '分数加法' }],
-                },
-                {
-                    gradeSemester: '四年级下',
-                    tags: [],
-                },
-                {
-                    gradeSemester: '',
-                    tags: [],
-                },
+                { gradeSemester: '三年级上' },
+                { gradeSemester: '四年级下' },
+                { gradeSemester: '' },
+            ]);
+            mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue([
+                { name: '分数加法' },
+                { name: '旧知识点' },
             ]);
 
             const response = await GET_FILTER_OPTIONS(
@@ -489,8 +526,16 @@ describe('/api/error-items', () => {
             expect(data.tags).toHaveLength(2);
             expect(data.tags).toEqual(expect.arrayContaining(['分数加法', '旧知识点']));
             expect(mocks.mockPrismaErrorItem.findMany).toHaveBeenCalledWith(
-                expect.objectContaining({
+                {
                     where: { userId: 'user-123', subjectId: 'notebook-1' },
+                    select: { gradeSemester: true },
+                    distinct: ['gradeSemester'],
+                },
+            );
+            expect(mocks.mockPrismaKnowledgeTag.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { errorItems: { some: { userId: 'user-123', subjectId: 'notebook-1' } } },
+                    distinct: ['name'],
                 }),
             );
         });

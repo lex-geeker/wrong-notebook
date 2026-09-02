@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { calculateGrade } from "@/lib/grade-calculator";
 import { badRequest, unauthorized, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
-import { findParentTagIdForGrade } from "@/lib/tag-recognition";
+import { resolveKnowledgeTagConnections } from "@/lib/tag-recognition";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import { parseOptionalImagePayload } from "@/lib/image-payload";
@@ -122,7 +122,6 @@ export async function POST(req: Request) {
             return badRequest('Invalid knowledge points');
         }
         const tagNames: string[] = rawTagNames;
-        const tagConnections: { id: string }[] = [];
 
         // 推断学科
         const subject = subjectId
@@ -132,45 +131,12 @@ export async function POST(req: Request) {
         const subjectKey = inferSubjectFromName(subject?.name ?? null) || 'other';
         logger.debug({ subjectId, subjectName: subject?.name, subjectKey }, 'Subject inferred');
 
-        // 处理每个标签
-        for (const tagName of tagNames) {
-            try {
-                const parentId = await findParentTagIdForGrade(finalGradeSemester, subjectKey);
-                let tag = await prisma.knowledgeTag.findFirst({
-                    where: {
-                        name: tagName,
-                        subject: subjectKey,
-                        parentId,
-                        OR: [
-                            { isSystem: true, userId: null },
-                            { isSystem: false, userId: user.id },
-                        ],
-                    },
-                });
-
-                if (!tag) {
-                    logger.debug({ tagName, parentId, subjectKey }, 'Creating new custom tag');
-
-                    tag = await prisma.knowledgeTag.create({
-                        data: {
-                            name: tagName,
-                            subject: subjectKey,
-                            isSystem: false,
-                            userId: user.id,
-                            parentId: parentId,
-                        },
-                    });
-                    logger.debug({ tagId: tag.id, tagName }, 'Custom tag created');
-                } else {
-                    logger.debug({ tagId: tag.id, tagName, isSystem: tag.isSystem }, 'Existing tag found');
-                }
-
-                tagConnections.push({ id: tag.id });
-            } catch (tagError) {
-                logger.error({ tagName, error: tagError }, 'Error processing tag');
-                throw tagError;
-            }
-        }
+        const tagConnections = await resolveKnowledgeTagConnections({
+            userId: user.id,
+            gradeSemester: finalGradeSemester,
+            subjectKey,
+            tagNames,
+        });
 
         logger.info({ tagNames, tagConnectionsCount: tagConnections.length }, 'Creating ErrorItem with tags');
 

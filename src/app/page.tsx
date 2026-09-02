@@ -1,19 +1,21 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { BarChart3, BookOpen, BrainCircuit, CalendarClock, CheckCircle2, Loader2, LogOut, Printer, Tags, Upload } from "lucide-react";
+import { BarChart3, BookOpen, BrainCircuit, CalendarClock, CheckCircle2, Loader2, LogOut, Printer, Settings, Tags, Upload } from "lucide-react";
 import { BroadcastNotification } from "@/components/broadcast-notification";
 import { ErrorEntryFlow } from "@/components/error-entry-flow";
-import { SettingsDialog } from "@/components/settings-dialog";
 import { UserWelcome } from "@/components/user-welcome";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient, ApiError } from "@/lib/api-client";
 import type { LearningOverview, PracticeSessionData } from "@/types/api";
+
+const SettingsDialog = dynamic(() => import("@/components/settings-dialog").then(mod => mod.SettingsDialog));
 
 function HomeContent() {
     const { t, language } = useLanguage();
@@ -22,6 +24,7 @@ function HomeContent() {
     const initialNotebookId = useSearchParams().get("notebook");
     const [overview, setOverview] = useState<LearningOverview | null>(null);
     const [reviewLoading, setReviewLoading] = useState(false);
+    const [settingsLoaded, setSettingsLoaded] = useState(false);
 
     useEffect(() => {
         apiClient.get<LearningOverview>("/api/learning-overview")
@@ -67,7 +70,14 @@ function HomeContent() {
                     <UserWelcome />
                     <div className="flex shrink-0 items-center gap-2 rounded-lg border bg-card p-2 shadow-sm">
                         <BroadcastNotification />
-                        <SettingsDialog />
+                        {settingsLoaded ? (
+                            <SettingsDialog defaultOpen />
+                        ) : (
+                            <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setSettingsLoaded(true)}>
+                                <Settings className="h-5 w-5" />
+                                <span className="sr-only">{t.settings?.title || "Settings"}</span>
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
                             size="icon"

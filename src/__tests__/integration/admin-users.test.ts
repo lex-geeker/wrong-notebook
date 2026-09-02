@@ -12,6 +12,17 @@ const mocks = vi.hoisted(() => ({
         update: vi.fn(),
         delete: vi.fn(),
     },
+    mockPrismaSubject: {
+        findMany: vi.fn(),
+    },
+    mockPrismaErrorItem: {
+        count: vi.fn(),
+        groupBy: vi.fn(),
+        findMany: vi.fn(),
+    },
+    mockPrismaPracticeRecord: {
+        count: vi.fn(),
+    },
     mockSession: {
         user: {
             id: 'admin-id',
@@ -26,6 +37,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
     prisma: {
         user: mocks.mockPrismaUser,
+        subject: mocks.mockPrismaSubject,
+        errorItem: mocks.mockPrismaErrorItem,
+        practiceRecord: mocks.mockPrismaPracticeRecord,
     },
 }));
 
@@ -41,6 +55,7 @@ vi.mock('@/lib/auth', () => ({
 // Import after mocks
 import { GET } from '@/app/api/admin/users/route';
 import { PATCH, DELETE } from '@/app/api/admin/users/[id]/route';
+import { GET as GET_DETAIL } from '@/app/api/admin/users/[id]/detail/route';
 import { getServerSession } from 'next-auth';
 
 describe('/api/admin/users', () => {
@@ -99,6 +114,50 @@ describe('/api/admin/users', () => {
             const response = await GET();
 
             expect(response.status).toBe(403);
+        });
+    });
+
+    describe('GET /api/admin/users/[id]/detail', () => {
+        it('保持用户详情响应并获取全部统计', async () => {
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({
+                id: 'user-1',
+                name: 'User 1',
+                email: 'user1@example.com',
+                role: 'user',
+                isActive: true,
+                createdAt: new Date('2026-01-01'),
+                educationStage: 'junior_high',
+                enrollmentYear: 2025,
+            });
+            mocks.mockPrismaSubject.findMany
+                .mockResolvedValueOnce([{ id: 'math', name: '数学', _count: { errorItems: 4 } }])
+                .mockResolvedValueOnce([{ id: 'math', name: '数学' }]);
+            mocks.mockPrismaErrorItem.count
+                .mockResolvedValueOnce(4)
+                .mockResolvedValueOnce(2);
+            mocks.mockPrismaPracticeRecord.count.mockResolvedValue(3);
+            mocks.mockPrismaErrorItem.groupBy
+                .mockResolvedValueOnce([{ masteryLevel: 0, _count: { id: 4 } }])
+                .mockResolvedValueOnce([{ subjectId: 'math', _count: { id: 4 } }]);
+            mocks.mockPrismaErrorItem.findMany.mockResolvedValue([]);
+
+            const response = await GET_DETAIL(
+                new Request('http://localhost/api/admin/users/user-1/detail'),
+                { params: Promise.resolve({ id: 'user-1' }) },
+            );
+            const data = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(data).toMatchObject({
+                errorCount: 4,
+                practiceCount: 3,
+                notebookCount: 1,
+                recent7DaysCount: 2,
+                masteryDistribution: { new: 4, reviewing: 0, mastered: 0 },
+                subjectDistribution: [{ name: '数学', count: 4 }],
+            });
+            expect(mocks.mockPrismaErrorItem.count).toHaveBeenCalledTimes(2);
+            expect(mocks.mockPrismaErrorItem.groupBy).toHaveBeenCalledTimes(2);
         });
     });
 

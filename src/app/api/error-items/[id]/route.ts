@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { unauthorized, forbidden, notFound, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
-import { findParentTagIdForGrade } from "@/lib/tag-recognition";
+import { resolveKnowledgeTagConnections } from "@/lib/tag-recognition";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { ERROR_SOURCES, ERROR_TYPES } from "@/lib/error-metadata";
@@ -144,35 +144,12 @@ export async function PUT(
             // 推断学科
             const subjectKey = inferSubjectFromName(tagSubject?.name ?? null) || 'other';
             const contextGrade = gradeSemester !== undefined ? gradeSemester : errorItem.gradeSemester;
-            const parentId = await findParentTagIdForGrade(contextGrade, subjectKey);
-
-            const tagConnections: { id: string }[] = [];
-            for (const tagName of tagNames) {
-                let tag = await prisma.knowledgeTag.findFirst({
-                    where: {
-                        name: tagName,
-                        subject: subjectKey,
-                        parentId,
-                        OR: [
-                            { isSystem: true, userId: null },
-                            { isSystem: false, userId },
-                        ],
-                    },
-                });
-
-                if (!tag) {
-                    tag = await prisma.knowledgeTag.create({
-                        data: {
-                            name: tagName,
-                            subject: subjectKey,
-                            isSystem: false,
-                            userId,
-                            parentId,
-                        },
-                    });
-                }
-                tagConnections.push({ id: tag.id });
-            }
+            const tagConnections = await resolveKnowledgeTagConnections({
+                userId,
+                gradeSemester: contextGrade,
+                subjectKey,
+                tagNames,
+            });
 
             // 更新标签关联: 先断开所有，再连接新的
             updateData.tags = {

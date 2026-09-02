@@ -14,6 +14,7 @@ describe("docker entrypoint", () => {
             mkdirSync(binDirectory);
             mkdirSync(join(directory, "data"));
             mkdirSync(join(directory, "config"));
+            writeFileSync(join(directory, "VERSION"), "2.0.0\n");
             const entrypoint = join(directory, "docker-entrypoint.sh");
             writeFileSync(
                 entrypoint,
@@ -24,7 +25,6 @@ describe("docker entrypoint", () => {
 printf '%s\\n' "$*" >> "$ENTRYPOINT_CALL_LOG"
 case "$*" in
     *"migrate deploy"*) exit 23 ;;
-    -p*) printf '1.9.1\\n' ;;
 esac
 `);
             chmodSync(entrypoint, 0o755);
@@ -46,6 +46,7 @@ esac
             expect(result.stdout).toContain("Running database migrations");
             expect(result.stdout).not.toContain("Migrations completed successfully");
             expect(calls).toContain("migrate deploy");
+            expect(calls).not.toContain("-p");
             expect(calls).not.toContain("seed-admin.js");
         } finally {
             rmSync(directory, { recursive: true, force: true });

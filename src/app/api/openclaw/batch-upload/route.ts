@@ -4,60 +4,50 @@ import { createLogger } from "@/lib/logger";
 import { createErrorResponse, ErrorCode } from "@/lib/api-errors";
 import { calculateGrade } from "@/lib/grade-calculator";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
-import { findParentTagIdForGrade } from "@/lib/tag-recognition";
+import { resolveKnowledgeTagConnections } from "@/lib/tag-recognition";
+import { parseImagePayload } from "@/lib/image-payload";
+import { ERROR_SOURCES, ERROR_TYPES, type ErrorSource, type ErrorType } from "@/lib/error-metadata";
 import { compare } from "bcryptjs";
+import { z } from "zod";
 
 const logger = createLogger('api:openclaw:batch-upload');
 
 const MAX_IMAGES = 20;
-const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
-
-interface ImageData {
-    base64: string;
-    mimeType: string;
-    filename: string;
-}
-
-interface OpenclawResponse {
-    success: boolean;
-    data?: {
-        questionText: string;
-        answerText: string;
-        analysis: string;
-        knowledgePoints: string[];
-        subject?: string;
-        errorType?: string;
-        source?: string;
-    };
-    error?: string;
-}
-
-function validateImage(base64: string, mimeType: string, filename: string): { valid: boolean; error?: string } {
-    if (!base64 || base64.length === 0) {
-        return { valid: false, error: '图片数据为空' };
-    }
-
-    const extension = filename.toLowerCase().substring(filename.lastIndexOf('.'));
-    if (!ALLOWED_EXTENSIONS.includes(extension)) {
-        return { valid: false, error: `不支持的图片格式: ${extension}，仅支持 JPG、PNG` };
-    }
-
-    if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
-        return { valid: false, error: 'Unsupported image MIME type' };
-    }
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
-        return { valid: false, error: 'Invalid Base64 image data' };
-    }
-
-    const estimatedSize = (base64.length * 3) / 4;
-    if (estimatedSize > MAX_IMAGE_SIZE) {
-        return { valid: false, error: `图片大小超过限制: ${Math.round(estimatedSize / 1024 / 1024)}MB > 5MB` };
-    }
-
-    return { valid: true };
-}
+const uploadRequestSchema = z.object({
+    username: z.string().min(1).optional(),
+    password: z.string().min(1).optional(),
+    userEmail: z.string().email().optional(),
+    subjectId: z.string().min(1).optional(),
+    images: z.array(z.object({
+        base64: z.string(),
+        mimeType: z.string(),
+        filename: z.string().min(1),
+    })).min(1).max(MAX_IMAGES),
+});
+const sourceSchema = z.unknown().optional().transform((value): ErrorSource =>
+    typeof value === 'string' && ERROR_SOURCES.includes(value as ErrorSource) ? value as ErrorSource : 'other'
+);
+const errorTypeSchema = z.unknown().optional().transform((value): ErrorType | undefined =>
+    value == null
+        ? undefined
+        : typeof value === 'string' && ERROR_TYPES.includes(value as ErrorType)
+            ? value as ErrorType
+            : 'other'
+);
+const openclawResponseSchema = z.object({
+    success: z.boolean(),
+    data: z.object({
+        questionText: z.string(),
+        answerText: z.string(),
+        analysis: z.string(),
+        knowledgePoints: z.array(z.string()),
+        subject: z.string().optional(),
+        errorType: errorTypeSchema,
+        source: sourceSchema,
+    }).optional(),
+    error: z.string().optional(),
+});
+type OpenclawResponse = z.infer<typeof openclawResponseSchema>;
 
 async function callOpenclawAgent(imageBase64: string, mimeType: string, timeout: number): Promise<OpenclawResponse> {
     const openclawUrl = process.env.OPENCLAW_API_URL || 'http://localhost:8080';
@@ -91,8 +81,12 @@ async function callOpenclawAgent(imageBase64: string, mimeType: string, timeout:
             };
         }
 
-        const data = await response.json() as OpenclawResponse;
-        return data;
+        const parsed = openclawResponseSchema.safeParse(await response.json());
+        if (!parsed.success) {
+            logger.error({ issues: parsed.error.issues }, 'Invalid Openclaw agent response');
+            return { success: false, error: '识别服务返回无效数据' };
+        }
+        return parsed.data;
     } catch (error: unknown) {
         clearTimeout(timeoutId);
 
@@ -114,15 +108,13 @@ async function callOpenclawAgent(imageBase64: string, mimeType: string, timeout:
 
 async function createErrorItem(
     userId: string,
-    imageBase64: string,
-    mimeType: string,
+    imageDataUrl: string,
     parsedData: OpenclawResponse['data'],
     subjectId?: string
 ) {
     const { questionText, answerText, analysis, knowledgePoints, errorType, source } = parsedData || {};
 
     const tagNames: string[] = Array.isArray(knowledgePoints) ? knowledgePoints : [];
-    const tagConnections: { id: string }[] = [];
 
     const subject = subjectId ? await prisma.subject.findFirst({ where: { id: subjectId, userId } }) : null;
     if (subjectId && !subject) throw new Error('Invalid subject');
@@ -138,46 +130,18 @@ async function createErrorItem(
         finalGradeSemester = calculateGrade(user.educationStage, user.enrollmentYear);
     }
 
-    for (const tagName of tagNames) {
-        try {
-            const parentId = finalGradeSemester && subjectKey
-                ? await findParentTagIdForGrade(finalGradeSemester, subjectKey)
-                : null;
-            let tag = await prisma.knowledgeTag.findFirst({
-                where: {
-                    name: tagName,
-                    subject: subjectKey || 'other',
-                    parentId,
-                    OR: [
-                        { isSystem: true, userId: null },
-                        { isSystem: false, userId },
-                    ],
-                },
-            });
-
-            if (!tag) {
-                tag = await prisma.knowledgeTag.create({
-                    data: {
-                        name: tagName,
-                        subject: subjectKey || 'other',
-                        isSystem: false,
-                        userId: userId,
-                        parentId: parentId || undefined,
-                    },
-                });
-            }
-
-            tagConnections.push({ id: tag.id });
-        } catch (tagError) {
-            logger.error({ tagName, error: tagError }, 'Error processing tag');
-        }
-    }
+    const tagConnections = await resolveKnowledgeTagConnections({
+        userId,
+        gradeSemester: finalGradeSemester,
+        subjectKey: subjectKey || 'other',
+        tagNames,
+    });
 
     const errorItem = await prisma.errorItem.create({
         data: {
             userId: userId,
             subjectId: subjectId || undefined,
-            originalImageUrl: `data:${mimeType};base64,${imageBase64}`,
+            originalImageUrl: imageDataUrl,
             ocrText: questionText || null,
             questionText: questionText || null,
             answerText: answerText || null,
@@ -185,7 +149,7 @@ async function createErrorItem(
             gradeSemester: finalGradeSemester,
             paperLevel: null,
             errorType: errorType || null,
-            source: source || 'Openclaw',
+            source: source || 'other',
             masteryLevel: 0,
             tags: {
                 connect: tagConnections,
@@ -215,8 +179,11 @@ export async function POST(req: Request) {
     let subjectId = null;
 
     try {
-        const body = await req.json();
-        const requestData = body;
+        const parsedRequest = uploadRequestSchema.safeParse(await req.json().catch(() => undefined));
+        if (!parsedRequest.success) {
+            return createErrorResponse('无效请求数据', 400, ErrorCode.BAD_REQUEST, 'Invalid request data');
+        }
+        const requestData = parsedRequest.data;
 
         // 根据认证模式选择验证方式
         if (authMode === 'apikey' && expectedApiKey) {
@@ -243,6 +210,9 @@ export async function POST(req: Request) {
 
             userEmail = requestData.userEmail;
             subjectId = requestData.subjectId;
+            if (!userEmail) {
+                return createErrorResponse('请提供用户邮箱', 400, ErrorCode.BAD_REQUEST, 'Missing user email');
+            }
         } else {
             // 用户名密码认证模式（默认）
             const { username, password } = requestData;
@@ -297,28 +267,7 @@ export async function POST(req: Request) {
             logger.info({ userId: user.id, email: user.email }, 'User authenticated via credentials');
         }
 
-        // 获取图片数组
         const { images } = requestData;
-
-        // 验证图片数组
-        if (!images || !Array.isArray(images) || images.length === 0) {
-            return createErrorResponse(
-                '未提供图片数据',
-                400,
-                ErrorCode.BAD_REQUEST,
-                'Missing images array'
-            );
-        }
-
-        // 验证图片数量
-        if (images.length > MAX_IMAGES) {
-            return createErrorResponse(
-                `图片数量超过限制: 最多${MAX_IMAGES}张`,
-                400,
-                ErrorCode.BAD_REQUEST,
-                `Maximum ${MAX_IMAGES} images allowed`
-            );
-        }
 
         // 获取用户信息（API Key模式需要单独查询）
         let dbUser = user;
@@ -352,21 +301,24 @@ export async function POST(req: Request) {
         }> = [];
 
         for (let i = 0; i < images.length; i++) {
-            const imageData = images[i] as ImageData;
+            const imageData = images[i];
             const { base64, mimeType, filename } = imageData;
 
-            const validation = validateImage(base64, mimeType, filename);
-            if (!validation.valid) {
-                logger.warn({ index: i, filename, error: validation.error }, 'Image validation failed');
+            let parsedImage;
+            try {
+                parsedImage = parseImagePayload(base64, mimeType);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                logger.warn({ index: i, filename, error: message }, 'Image validation failed');
                 results.push({
                     success: false,
                     index: i,
-                    error: validation.error,
+                    error: message,
                 });
                 continue;
             }
 
-            const openclawResponse = await callOpenclawAgent(base64, mimeType, singleImageTimeout);
+            const openclawResponse = await callOpenclawAgent(parsedImage.base64, parsedImage.mimeType, singleImageTimeout);
 
             if (!openclawResponse.success || !openclawResponse.data) {
                 logger.error({ index: i, error: openclawResponse.error }, 'Openclaw recognition failed');
@@ -381,8 +333,7 @@ export async function POST(req: Request) {
             try {
                 const errorItem = await createErrorItem(
                     dbUser.id,
-                    base64,
-                    mimeType,
+                    parsedImage.dataUrl,
                     openclawResponse.data,
                     subjectId
                 );

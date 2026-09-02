@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Upload, PenLine, FilePenLine } from "lucide-react";
 import { UploadZone } from "@/components/upload-zone";
-import { CorrectionEditor } from "@/components/correction-editor";
-import { ImageCropper } from "@/components/image-cropper";
 import { TextInputZone } from "@/components/text-input-zone";
-import { DirectTextEditor } from "@/components/direct-text-editor";
 import { ProgressFeedback, type ProgressStatus } from "@/components/ui/progress-feedback";
 import { useToast } from "@/components/ui/toast";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -16,6 +14,10 @@ import { processImageFile } from "@/lib/image-utils";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import type { AnalyzeResponse, AppConfig, Notebook } from "@/types/api";
 import type { ErrorSource, ErrorType } from "@/lib/error-metadata";
+
+const CorrectionEditor = dynamic(() => import("@/components/correction-editor").then(mod => mod.CorrectionEditor));
+const DirectTextEditor = dynamic(() => import("@/components/direct-text-editor").then(mod => mod.DirectTextEditor));
+const ImageCropper = dynamic(() => import("@/components/image-cropper").then(mod => mod.ImageCropper));
 
 type InputMode = "image" | "text" | "direct";
 type SaveData = ParsedQuestion & {

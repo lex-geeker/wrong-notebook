@@ -42,11 +42,11 @@ interface ProfileFormState {
     password: string;
 }
 
-export function SettingsDialog() {
+export function SettingsDialog({ defaultOpen = false }: { defaultOpen?: boolean }) {
     const { data: session } = useSession();
     const { t, language, setLanguage } = useLanguage();
     const { showToast } = useToast();
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(defaultOpen);
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(false);
     const [version, setVersion] = useState<string>("");

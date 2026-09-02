@@ -1,5 +1,6 @@
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 export async function findParentTagIdForGrade(gradeSemester: string | null | undefined, subjectKey: string): Promise<string | null> {
     if (!gradeSemester || !subjectKey) return null;
@@ -82,4 +83,63 @@ export async function findParentTagIdForGrade(gradeSemester: string | null | und
 
 
     return null;
+}
+
+export async function resolveKnowledgeTagConnections({
+    userId,
+    gradeSemester,
+    subjectKey,
+    tagNames,
+}: {
+    userId: string;
+    gradeSemester?: string | null;
+    subjectKey: string;
+    tagNames: string[];
+}): Promise<{ id: string }[]> {
+    const names = [...new Set(tagNames.map(name => name.trim()).filter(Boolean))];
+    if (names.length === 0) return [];
+
+    const parentId = await findParentTagIdForGrade(gradeSemester, subjectKey);
+    const scope: Prisma.KnowledgeTagWhereInput = {
+        subject: subjectKey,
+        parentId,
+        OR: [
+            { isSystem: true, userId: null },
+            { isSystem: false, userId },
+        ],
+    };
+    const existingTags = await prisma.knowledgeTag.findMany({
+        where: { ...scope, name: { in: names } },
+        select: { id: true, name: true },
+    });
+    const tagsByName = new Map(existingTags.map(tag => [tag.name, tag]));
+
+    for (const name of names) {
+        if (tagsByName.has(name)) continue;
+
+        try {
+            const tag = await prisma.knowledgeTag.create({
+                data: {
+                    name,
+                    subject: subjectKey,
+                    isSystem: false,
+                    userId,
+                    parentId,
+                },
+                select: { id: true, name: true },
+            });
+            tagsByName.set(name, tag);
+        } catch (error) {
+            if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+
+            const tag = await prisma.knowledgeTag.findFirst({
+                where: { ...scope, name },
+                select: { id: true, name: true },
+            });
+            if (!tag) throw error;
+            tagsByName.set(name, tag);
+        }
+    }
+
+    return names.map(name => ({ id: tagsByName.get(name)!.id }));
 }

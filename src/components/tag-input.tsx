@@ -26,37 +26,32 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
     const suggestionsRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!input.trim()) return;
-        let active = true;
-        const fetchSuggestions = async () => {
-          try {
-            // 从服务器获取标签建议（现在从数据库查询）
-            const params = new URLSearchParams({ q: input });
-            if (subject) {
-                params.append('subject', subject);
-            }
-            if (gradeStage) {
-                params.append('stage', gradeStage);
-            }
-            const data = await apiClient.get<TagSuggestionsResponse>(`/api/tags/suggestions?${params.toString()}`);
-            const serverSuggestions = data.suggestions || [];
+        const query = input.trim();
+        if (!query) return;
 
-            // 过滤已选中的标签
-            const filtered = serverSuggestions.filter(
-                (tag) => !value.includes(tag)
-            );
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(async () => {
+            try {
+                const params = new URLSearchParams({ q: query });
+                if (subject) params.append('subject', subject);
+                if (gradeStage) params.append('stage', gradeStage);
+                const data = await apiClient.get<TagSuggestionsResponse>(`/api/tags/suggestions?${params.toString()}`, {
+                    signal: controller.signal,
+                });
+                const filtered = (data.suggestions || []).filter(tag => !value.includes(tag));
 
-            if (active) {
                 setSuggestions(filtered.slice(0, 20));
                 setShowSuggestions(filtered.length > 0);
                 setSelectedIndex(0);
+            } catch (error) {
+                if (!controller.signal.aborted) console.error("Failed to fetch suggestions:", error);
             }
-          } catch (error) {
-            console.error("Failed to fetch suggestions:", error);
-          }
+        }, 250);
+
+        return () => {
+            window.clearTimeout(timeoutId);
+            controller.abort();
         };
-        void fetchSuggestions();
-        return () => { active = false; };
     }, [input, subject, gradeStage, value]);
 
     const addTag = (tag: string) => {
@@ -67,6 +62,14 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
             setShowSuggestions(false);
             setSelectedIndex(0);
         }
+    };
+
+    const updateInput = (nextInput: string) => {
+        setInput(nextInput);
+        if (nextInput.trim()) return;
+        setSuggestions([]);
+        setShowSuggestions(false);
+        setSelectedIndex(0);
     };
 
     const removeTag = (tagToRemove: string) => {
@@ -133,7 +136,7 @@ export function TagInput({ value = [], onChange, placeholder = "Enter tags...", 
                     ref={inputRef}
                     type="text"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => updateInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onFocus={() => {
                         if (suggestions.length > 0) {

@@ -69,6 +69,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 
 # Copy config directory for runtime
 COPY --from=builder --chown=nextjs:nodejs /app/config ./config
+COPY --from=builder --chown=nextjs:nodejs /app/VERSION ./VERSION
 
 # Copy pre-compiled runtime scripts
 COPY --from=builder --chown=nextjs:nodejs /app/dist-scripts ./dist-scripts

@@ -15,22 +15,21 @@ export async function GET(req: Request) {
         if (!session?.user?.id) return unauthorized("Authentication required");
         if (!subjectId) return badRequest("subjectId is required");
 
-        const items = await prisma.errorItem.findMany({
-            where: { userId: session.user.id, subjectId },
-            select: {
-                gradeSemester: true,
-                tags: { select: { name: true } },
-            },
-        });
+        const [gradeRows, tagRows] = await Promise.all([
+            prisma.errorItem.findMany({
+                where: { userId: session.user.id, subjectId },
+                select: { gradeSemester: true },
+                distinct: ["gradeSemester"],
+            }),
+            prisma.knowledgeTag.findMany({
+                where: { errorItems: { some: { userId: session.user.id, subjectId } } },
+                select: { name: true },
+                distinct: ["name"],
+            }),
+        ]);
 
-        const grades = new Set<string>();
-        const tags = new Set<string>();
-
-        for (const item of items) {
-            if (item.gradeSemester?.trim()) grades.add(item.gradeSemester);
-
-            item.tags.forEach(({ name }) => name.trim() && tags.add(name));
-        }
+        const grades = new Set(gradeRows.map(({ gradeSemester }) => gradeSemester?.trim()).filter(Boolean) as string[]);
+        const tags = new Set(tagRows.map(({ name }) => name.trim()).filter(Boolean));
 
         return NextResponse.json({
             grades: [...grades].sort((a, b) => a.localeCompare(b, "zh-CN")),

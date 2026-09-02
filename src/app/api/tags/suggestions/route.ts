@@ -8,6 +8,45 @@ import { unauthorized } from "@/lib/api-errors";
 
 const logger = createLogger('api:tags:suggestions');
 
+const STAGE_GRADES: Record<string, string[]> = {
+    primary: ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'],
+    junior_high: ['七年级', '八年级', '九年级'],
+    senior_high: ['高一', '高二', '高三'],
+};
+
+async function findStageSystemTagIds(stage: string | undefined, subject: string | undefined) {
+    const grades = stage ? STAGE_GRADES[stage] : undefined;
+    if (!grades) return undefined;
+
+    let frontier = (await prisma.knowledgeTag.findMany({
+        where: {
+            isSystem: true,
+            userId: null,
+            parentId: null,
+            ...(subject ? { subject } : {}),
+            OR: grades.map(name => ({ name: { contains: name } })),
+        },
+        select: { id: true },
+    })).map(tag => tag.id);
+    const ids = new Set(frontier);
+
+    while (frontier.length > 0) {
+        const children = await prisma.knowledgeTag.findMany({
+            where: {
+                isSystem: true,
+                userId: null,
+                parentId: { in: frontier },
+                ...(subject ? { subject } : {}),
+            },
+            select: { id: true },
+        });
+        frontier = children.map(tag => tag.id).filter(id => !ids.has(id));
+        frontier.forEach(id => ids.add(id));
+    }
+
+    return [...ids];
+}
+
 /**
  * GET /api/tags/suggestions
  * 获取标签建议（支持搜索）
@@ -23,90 +62,37 @@ export async function GET(req: Request) {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) return unauthorized();
         const { searchParams } = new URL(req.url);
-        const query = searchParams.get("q")?.toLowerCase() || "";
+        const query = searchParams.get("q")?.trim() || "";
         const subject = searchParams.get("subject") || undefined;
         const stage = searchParams.get("stage") || undefined;
-
-        // 如果没有 session, 尝试默认用户? 还是只返回系统标签? 
-        // 按照现有逻辑，很多地方都有 fallback 到默认用户的逻辑，这里也保持一致比较好，
-        // 或者只返回系统标签。稳妥起见，如果已登录则返回用户标签。
+        const stageSystemTagIds = await findStageSystemTagIds(stage, subject);
 
         const whereCondition: Prisma.KnowledgeTagWhereInput = {
             ...(subject ? { subject } : {}),
+            ...(query ? { name: { contains: query } } : {}),
+            children: { none: {} },
             OR: [
-                { isSystem: true, userId: null },
+                {
+                    isSystem: true,
+                    userId: null,
+                    ...(stageSystemTagIds ? { id: { in: stageSystemTagIds } } : {}),
+                },
                 { isSystem: false, userId: session.user.id },
             ]
         };
 
-        // Fetch all system tags AND user tags for the subject
-        const allTags = await prisma.knowledgeTag.findMany({
-            where: whereCondition,
-            select: {
-                id: true,
-                name: true,
-                parentId: true,
-                userId: true,
-                isSystem: true,
-                children: { select: { id: true } }, // Check if leaf
-            },
-        });
-
-        // Identify leaf nodes (suggestions candidates)
-        // A node is a leaf if it has no children in the fetched set
-        // Actually, we can check children array length from the query
-        // But the query for 'children' relies on the relation.
-        // Let's filter in memory.
-
-        const tagMap = new Map<string, typeof allTags[0]>();
-        allTags.forEach(t => tagMap.set(t.id, t));
-
-        let suggestions = allTags.filter(t => t.children.length === 0);
-
-        // Filter by stage if provided
-        if (stage) {
-            const allowedGradePatterns: Record<string, string[]> = {
-                'primary': ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'],
-                'junior_high': ['七年级', '八年级', '九年级'],
-                'senior_high': ['高一', '高二', '高三'],
-            };
-
-            const filters = allowedGradePatterns[stage];
-            if (filters) {
-                suggestions = suggestions.filter(tag => {
-                    // Always show user custom tags (non-system tags) regardless of stage filter
-                    // unless we want to enforce structure on them too? Usually custom tags have flattened structure or no parent
-                    if (!tag.isSystem) {
-                        return true;
-                    }
-
-                    let current = tag;
-                    // Traverse up to find root
-                    while (current.parentId && tagMap.get(current.parentId)) {
-                        current = tagMap.get(current.parentId)!;
-                    }
-                    // Current is now the root (or top-most loaded ancestor)
-                    const isMatch = filters.some(f => current.name.includes(f));
-                    return isMatch;
-                });
-            }
-        }
-
-        // Filter by query
-        if (query) {
-            suggestions = suggestions.filter((tag) =>
-                tag.name.toLowerCase().includes(query)
-            );
-        }
-
-        // Secondary sorting by name match position (optional) or just name
-        const finalSuggestions = suggestions
-            .slice(0, 30)
-            .map(s => s.name);
+        const [suggestions, total] = await Promise.all([
+            prisma.knowledgeTag.findMany({
+                where: whereCondition,
+                select: { name: true },
+                take: 30,
+            }),
+            prisma.knowledgeTag.count({ where: whereCondition }),
+        ]);
 
         return NextResponse.json({
-            suggestions: finalSuggestions,
-            total: suggestions.length,
+            suggestions: suggestions.map(tag => tag.name),
+            total,
         });
     } catch (error) {
         logger.error({ error }, 'Error getting tag suggestions');
@@ -116,4 +102,3 @@ export async function GET(req: Request) {
         );
     }
 }
-

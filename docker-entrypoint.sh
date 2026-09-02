@@ -11,8 +11,8 @@ PRISMA_BIN="node /app/node_modules/prisma/build/index.js"
 SEED_ADMIN_SCRIPT="/app/dist-scripts/scripts/seed-admin.js"
 REBUILD_TAGS_SCRIPT="/app/dist-scripts/scripts/rebuild-system-tags.js"
 
-# Get current app version from package.json
-CURRENT_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "unknown")
+# Get current app version
+CURRENT_VERSION=$(cat /app/VERSION 2>/dev/null || echo "unknown")
 
 # Fix permissions for data and config directories
 chown -R nextjs:nodejs /app/data /app/config
