@@ -198,7 +198,7 @@ describe('/api/tags', () => {
 
     describe('GET /api/tags/suggestions (标签建议)', () => {
         // Helper to create mock tag data (simulates KnowledgeTag from DB)
-        const createMockTag = (name: string, subject = 'math', isSystem = true, hasChildren = false) => ({
+        const createMockTag = (name: string, isSystem = true, hasChildren = false) => ({
             id: `tag-${name}`,
             name,
             parentId: null,
@@ -216,7 +216,7 @@ describe('/api/tags', () => {
             const mockTags = [
                 createMockTag('一元一次方程'),
                 createMockTag('二元一次方程'),
-                createMockTag('父节点', 'math', true, true), // 有子节点，不应返回
+                createMockTag('父节点', true, true), // 有子节点，不应返回
             ];
             mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
 
@@ -271,8 +271,8 @@ describe('/api/tags', () => {
             });
 
             const mockTags = [
-                createMockTag('系统标签', 'math', true),
-                { ...createMockTag('自定义标签', 'math', false), userId: 'user-1' },
+                createMockTag('系统标签', true),
+                { ...createMockTag('自定义标签', false), userId: 'user-1' },
             ];
             mocks.mockPrismaKnowledgeTag.findMany.mockResolvedValue(mockTags);
 

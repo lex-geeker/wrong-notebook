@@ -321,6 +321,8 @@ function PrintPreviewContent() {
                             ) : (
                                 item.originalImageUrl && (
                                     <div className="mb-4">
+                                        {/* Print sizing must follow the user-controlled percentage exactly. */}
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
                                         <img
                                             src={item.originalImageUrl}
                                             alt={t.detail?.originalProblem || 'Question Image'}

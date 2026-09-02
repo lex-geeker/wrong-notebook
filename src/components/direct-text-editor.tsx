@@ -13,6 +13,7 @@ import { NotebookSelector } from "@/components/notebook-selector";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import type { MistakeStatus } from "@/lib/mistake-status";
+import type { Notebook } from "@/types/api";
 import {
     ERROR_SOURCES,
     ERROR_SOURCE_LABELS,
@@ -39,11 +40,11 @@ interface DirectTextEditorProps {
         errorType?: ErrorType;
     }) => Promise<void>;
     defaultNotebookId?: string;
-    defaultNotebookName?: string;
+    notebooks: Notebook[];
     isSaving: boolean;
 }
 
-export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookName, isSaving }: DirectTextEditorProps) {
+export function DirectTextEditor({ onSubmit, defaultNotebookId, notebooks, isSaving }: DirectTextEditorProps) {
     const { t, language } = useLanguage();
     const [previewField, setPreviewField] = useState<string | null>(null);
 
@@ -59,13 +60,16 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
     const [paperLevel, setPaperLevel] = useState("a");
     const [source, setSource] = useState<ErrorSource>("homework");
     const [errorType, setErrorType] = useState<ErrorType | undefined>();
+    const [validationError, setValidationError] = useState("");
+    const selectedNotebookName = notebooks.find(notebook => notebook.id === subjectId)?.name;
 
     const handleSubmit = async () => {
         if (!questionText.trim()) return;
         if (!subjectId) {
-            alert(t.editor.messages?.selectNotebook || "请选择错题本");
+            setValidationError(t.editor.messages?.selectNotebook || "请选择错题本");
             return;
         }
+        setValidationError("");
 
         await onSubmit({
             questionText: questionText.trim(),
@@ -173,6 +177,8 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
                     </Button>
                 </div>
 
+                {validationError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{validationError}</p>}
+
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                         <Label>{language === "zh" ? "错题来源" : "Source"}</Label>
@@ -201,7 +207,11 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
                         <Label>{t.editor?.selectNotebook || "选择错题本"} *</Label>
                         <NotebookSelector
                             value={subjectId}
-                            onChange={setSubjectId}
+                            onChange={(id) => {
+                                setSubjectId(id);
+                                setValidationError("");
+                            }}
+                            notebooks={notebooks}
                         />
                     </div>
                     <div className="space-y-2">
@@ -305,7 +315,7 @@ export function DirectTextEditor({ onSubmit, defaultNotebookId, defaultNotebookN
                         onChange={setKnowledgePoints}
                         placeholder={t.editor?.tagsPlaceholder || "输入知识点标签..."}
                         enterHint={t.editor?.createTagHint}
-                        subject={inferSubjectFromName(defaultNotebookName || null) || undefined}
+                        subject={inferSubjectFromName(selectedNotebookName || null) || undefined}
                     />
                     <p className="text-xs text-muted-foreground">
                         {t.editor?.tagsHint || "💡 输入时会自动匹配已有标签"}

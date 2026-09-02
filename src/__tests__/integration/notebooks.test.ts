@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     mockPrismaSubject: {
         findMany: vi.fn(),
         findUnique: vi.fn(),
+        upsert: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
@@ -75,7 +76,7 @@ describe('/api/notebooks', () => {
                     { id: 'nb-1', name: '数学', userId: 'user-123', _count: { errorItems: 0 } },
                     { id: 'nb-2', name: '英语', userId: 'user-123', _count: { errorItems: 0 } },
                 ]);
-            mocks.mockPrismaSubject.create.mockResolvedValue({});
+            mocks.mockPrismaSubject.upsert.mockResolvedValue({});
 
             const response = await GET();
             const data = await response.json();
@@ -83,7 +84,7 @@ describe('/api/notebooks', () => {
             expect(response.status).toBe(200);
             expect(data).toHaveLength(2);
             // 验证创建了默认错题本
-            expect(mocks.mockPrismaSubject.create).toHaveBeenCalledTimes(2);
+            expect(mocks.mockPrismaSubject.upsert).toHaveBeenCalledTimes(2);
         });
     });
 

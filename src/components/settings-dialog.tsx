@@ -20,15 +20,16 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Trash2, Loader2, AlertTriangle, Eye, EyeOff, Languages, User, Bot, Shield, RefreshCw, Plus, Zap, CheckCircle2, XCircle, Download, Upload, BarChart3 } from "lucide-react";
+import { Settings, Loader2, AlertTriangle, Eye, EyeOff, Languages, User, Bot, Shield, BarChart3 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { UserManagement } from "@/components/admin/user-management";
 import { apiClient, ApiError } from "@/lib/api-client";
-import { AppConfig, UserProfile, UpdateUserProfileRequest, OpenAIInstance, MAX_OPENAI_INSTANCES } from "@/types/api";
-import { ModelSelector } from "@/components/ui/model-selector";
+import { AppConfig, UserProfile, UpdateUserProfileRequest } from "@/types/api";
 import { PromptSettings } from "@/components/settings/prompt-settings";
+import { AiSettingsSection } from "@/components/settings/ai-settings-section";
+import { DangerSettingsSection } from "@/components/settings/danger-settings-section";
 
 import { MessageSquareText, Info, ExternalLink, Github, ScrollText } from "lucide-react";
 
@@ -40,45 +41,16 @@ interface ProfileFormState {
     password: string;
 }
 
-interface ImportResponse {
-    stats: {
-        subjectsCreated: number;
-        tagsCreated: number;
-        errorItemsCreated: number;
-        reviewSchedulesIgnored: number;
-        practiceRecordsCreated: number;
-    };
-}
-
-type DataScope = 'user' | 'all';
-
 export function SettingsDialog() {
     const { data: session } = useSession();
     const { t, language, setLanguage } = useLanguage();
     const [open, setOpen] = useState(false);
+    const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const dialogContentRef = useRef<HTMLDivElement>(null);
-    const [clearingPractice, setClearingPractice] = useState(false);
-    const [clearingError, setClearingError] = useState(false);
-    const [systemResetting, setSystemResetting] = useState(false);
-    const [migratingTags, setMigratingTags] = useState(false);
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(false);
     const [version, setVersion] = useState<string>("");
-    const [showApiKey, setShowApiKey] = useState(false);
     const [config, setConfig] = useState<AppConfig>({ aiProvider: 'gemini' });
-    // OpenAI 多实例状态
-    const [selectedInstanceId, setSelectedInstanceId] = useState<string | undefined>(undefined);
-
-    // AI 连接测试状态
-    const [testing, setTesting] = useState(false);
-    const [testResult, setTestResult] = useState<{
-        success: boolean;
-        textSupport: boolean;
-        visionSupport: boolean;
-        textError?: string;
-        visionError?: string;
-        modelInfo?: string;
-    } | null>(null);
 
     // Profile State
     const [profile, setProfile] = useState<ProfileFormState>({
@@ -93,12 +65,6 @@ export function SettingsDialog() {
     const [profileSaving, setProfileSaving] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-    // Import/Export state
-    const [exporting, setExporting] = useState(false);
-    const [importing, setImporting] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [selectedFileName, setSelectedFileName] = useState<string>("");
 
     const router = useRouter();
 
@@ -184,26 +150,26 @@ export function SettingsDialog() {
         // 验证 OpenAI 实例必填字段
         const openaiValidationError = validateOpenAIInstances();
         if (openaiValidationError) {
-            alert(openaiValidationError);
+            setFeedback({ type: "error", message: openaiValidationError });
             return;
         }
 
         // 验证 Azure 必填字段
         const azureValidationError = validateAzureConfig();
         if (azureValidationError) {
-            alert(azureValidationError);
+            setFeedback({ type: "error", message: azureValidationError });
             return;
         }
 
         setSaving(true);
         try {
             await apiClient.post("/api/settings", config);
-            alert(t.settings?.messages?.saved || "Settings saved");
+            setFeedback({ type: "success", message: t.settings?.messages?.saved || "Settings saved" });
             // 保存成功后滚动到顶部，方便关闭对话框
             dialogContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (error) {
             console.error('[SettingsDialog] Failed to save settings', error);
-            alert(t.settings?.messages?.saveFailed || "Failed to save");
+            setFeedback({ type: "error", message: t.settings?.messages?.saveFailed || "Failed to save" });
         } finally {
             setSaving(false);
         }
@@ -214,7 +180,7 @@ export function SettingsDialog() {
         try {
             // 验证密码一致性（如果用户输入了密码）
             if (profile.password && profile.password !== confirmPassword) {
-                alert(t.settings?.messages?.passwordMismatch || 'Passwords do not match');
+                setFeedback({ type: "error", message: t.settings?.messages?.passwordMismatch || "Passwords do not match" });
                 setProfileSaving(false);
                 return;
             }
@@ -235,7 +201,7 @@ export function SettingsDialog() {
 
             await apiClient.patch("/api/user", payload);
 
-            alert(t.settings?.messages?.profileUpdated || "Profile updated");
+            setFeedback({ type: "success", message: t.settings?.messages?.profileUpdated || "Profile updated" });
             setProfile(prev => ({ ...prev, password: "" })); // Clear password field
             setConfirmPassword(""); // Clear confirm password field
             setShowPassword(false);
@@ -246,262 +212,11 @@ export function SettingsDialog() {
             const apiMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : null;
             console.error('[SettingsDialog] Failed to update profile', error);
             const message = apiMessage || (t.settings?.messages?.updateFailed || "Update failed");
-            alert(message);
+            setFeedback({ type: "error", message });
         } finally {
             setProfileSaving(false);
         }
     };
-
-    const handleClearData = async () => {
-        if (!confirm(t.settings?.clearDataConfirm || "Are you sure?")) {
-            return;
-        }
-
-        setClearingPractice(true);
-        try {
-            await apiClient.delete("/api/stats/practice/clear");
-            alert(t.settings?.clearSuccess || "Success");
-            setOpen(false);
-            window.location.reload();
-        } catch (error) {
-            console.error('[SettingsDialog] Failed to clear practice data', error);
-            alert(t.settings?.clearError || "Failed");
-        } finally {
-            setClearingPractice(false);
-        }
-    };
-
-    const handleClearErrorData = async () => {
-        if (!confirm(t.settings?.clearErrorDataConfirm || "Are you sure?")) {
-            return;
-        }
-
-        setClearingError(true);
-        try {
-            await apiClient.delete("/api/error-items/clear");
-            alert(t.settings?.clearSuccess || "Success");
-            setOpen(false);
-            window.location.reload();
-        } catch (error) {
-            console.error('[SettingsDialog] Failed to clear error data', error);
-            alert(t.settings?.clearError || "Failed");
-        } finally {
-            setClearingError(false);
-        }
-    };
-
-    const handleSystemReset = async () => {
-        // Double confirm
-        if (!confirm(t.settings?.systemResetConfirm || "WARNING: Deleting ALL data. Undoing is impossible. Are you sure?")) {
-            return;
-        }
-
-        // Optional triple confirm?
-        const userInput = prompt(t.settings?.systemResetPrompt || "Type 'RESET' to confirm system initialization:", "");
-        if (userInput !== 'RESET') {
-            if (userInput !== null) alert(t.common?.error || "Confirmation failed");
-            return;
-        }
-
-        setSystemResetting(true);
-        try {
-            await apiClient.post("/api/admin/system-reset", {});
-            alert(t.settings?.clearSuccess || "Success - System Reset Complete");
-            setOpen(false);
-            window.location.reload();
-        } catch (error) {
-            console.error('[SettingsDialog] System reset failed', error);
-            alert(t.settings?.clearError || "Failed to reset system");
-        } finally {
-            setSystemResetting(false);
-        }
-    };
-
-    const handleExportData = async (scope: DataScope) => {
-        if (scope === 'all' && !confirm(t.settings?.exportAllConfirm || "Export all users' data? This may take a while.")) return;
-
-        setExporting(true);
-        try {
-            const res = await fetch(`/api/export${scope === 'all' ? '?all=true' : ''}`);
-            if (!res.ok) {
-                const data = await res.json().catch(() => null);
-                throw new Error(data?.message || 'Export failed');
-            }
-            const blob = await res.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const disposition = res.headers.get('Content-Disposition');
-            const filenameMatch = disposition?.match(/filename="(.+)"/);
-            a.download = filenameMatch?.[1] || `wrong-notebook-export${scope === 'all' ? '-all' : ''}.json`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-            alert(t.settings?.exportSuccess || "Export successful");
-        } catch (error) {
-            console.error(`[SettingsDialog] ${scope} export failed`, error);
-            alert(t.settings?.exportFailed || "Export failed");
-        } finally {
-            setExporting(false);
-        }
-    };
-
-    const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setSelectedFile(file);
-            setSelectedFileName(file.name);
-        }
-    };
-
-    const handleImportData = async (scope: DataScope) => {
-        if (!selectedFile) return;
-
-        const confirmation = scope === 'all'
-            ? t.settings?.importAllConfirm || "Import all users' data? This will restore data for all users from the export file."
-            : t.settings?.importConfirm || "Are you sure you want to import?";
-        if (!confirm(confirmation)) return;
-
-        setImporting(true);
-        try {
-            const text = await selectedFile.text();
-            const data = JSON.parse(text);
-
-            const response = await apiClient.post<ImportResponse>(`/api/import${scope === 'all' ? '?all=true' : ''}`, data);
-            const stats = response.stats;
-
-            alert(
-                (t.settings?.importResultDesc || "Imported {subjects} notebooks, {tags} tags, {items} error items and {records} practice records; ignored {schedules} legacy review schedules.")
-                    .replace('{subjects}', String(stats.subjectsCreated))
-                    .replace('{tags}', String(stats.tagsCreated))
-                    .replace('{items}', String(stats.errorItemsCreated))
-                    .replace('{schedules}', String(stats.reviewSchedulesIgnored))
-                    .replace('{records}', String(stats.practiceRecordsCreated))
-            );
-
-            setSelectedFile(null);
-            setSelectedFileName("");
-            window.location.reload();
-        } catch (error) {
-            console.error(`[SettingsDialog] ${scope} import failed`, error);
-            alert(t.settings?.importFailed || "Import failed");
-        } finally {
-            setImporting(false);
-        }
-    };
-
-    const handleMigrateTags = async () => {
-        if (!confirm(t.settings?.migrateTagsConfirm || "This will reset system tags. Confirm?")) {
-            return;
-        }
-
-        setMigratingTags(true);
-        try {
-            const res = await apiClient.post<{ count: number }>("/api/admin/migrate-tags", {});
-            alert(`${t.settings?.clearSuccess || "Success"}: ${res.count || 0} tags migrated.`);
-            // No reload needed necessarily, but good to refresh if user is viewing tags.
-        } catch (error) {
-            console.error('[SettingsDialog] Tag migration failed', error);
-            alert(t.settings?.clearError || "Failed to migrate tags");
-        } finally {
-            setMigratingTags(false);
-        }
-    };
-
-    const updateConfig = (section: 'openai' | 'gemini', key: string, value: string) => {
-        if (section === 'gemini') {
-            setConfig(prev => ({
-                ...prev,
-                gemini: {
-                    ...prev.gemini,
-                    [key]: value
-                }
-            }));
-        }
-        // OpenAI 配置更新通过 updateOpenAIInstance 处理
-    };
-
-    // 获取当前选中的 OpenAI 实例
-    const getSelectedInstance = (): OpenAIInstance | undefined => {
-        const instances = config.openai?.instances || [];
-        const activeId = selectedInstanceId || config.openai?.activeInstanceId;
-        return instances.find(i => i.id === activeId);
-    };
-
-    // 更新当前选中的 OpenAI 实例属性
-    const updateOpenAIInstance = (key: keyof OpenAIInstance, value: string) => {
-        const instances = config.openai?.instances || [];
-        const activeId = selectedInstanceId || config.openai?.activeInstanceId;
-        const updatedInstances = instances.map(instance =>
-            instance.id === activeId ? { ...instance, [key]: value } : instance
-        );
-        setConfig(prev => ({
-            ...prev,
-            openai: {
-                ...prev.openai,
-                instances: updatedInstances,
-            }
-        }));
-    };
-
-    // 添加新的 OpenAI 实例
-    const addOpenAIInstance = () => {
-        const instances = config.openai?.instances || [];
-        if (instances.length >= MAX_OPENAI_INSTANCES) return;
-
-        const newInstance: OpenAIInstance = {
-            id: crypto.randomUUID(),
-            name: `Instance ${instances.length + 1}`,
-            apiKey: '',
-            baseUrl: 'https://api.openai.com/v1',
-            model: 'gpt-4o',
-        };
-
-        setConfig(prev => ({
-            ...prev,
-            openai: {
-                instances: [...(prev.openai?.instances || []), newInstance],
-                activeInstanceId: newInstance.id,
-            }
-        }));
-        setSelectedInstanceId(newInstance.id);
-    };
-
-    // 删除 OpenAI 实例
-    const deleteOpenAIInstance = (instanceId: string) => {
-        const instances = config.openai?.instances || [];
-        const updatedInstances = instances.filter(i => i.id !== instanceId);
-        const newActiveId = updatedInstances.length > 0 ? updatedInstances[0].id : undefined;
-
-        setConfig(prev => ({
-            ...prev,
-            openai: {
-                instances: updatedInstances,
-                activeInstanceId: newActiveId,
-            }
-        }));
-        setSelectedInstanceId(newActiveId);
-    };
-
-    // 切换激活的 OpenAI 实例
-    const setActiveOpenAIInstance = (instanceId: string) => {
-        setSelectedInstanceId(instanceId);
-        setConfig(prev => ({
-            ...prev,
-            openai: {
-                ...prev.openai,
-                activeInstanceId: instanceId,
-            }
-        }));
-    };
-
-    // 同步 selectedInstanceId 与 config
-    useEffect(() => {
-        if (config.openai?.activeInstanceId && !selectedInstanceId) {
-            setSelectedInstanceId(config.openai.activeInstanceId);
-        }
-    }, [config.openai?.activeInstanceId, selectedInstanceId]);
 
     const updatePrompts = (type: 'analyze' | 'similar', value: string) => {
         setConfig(prev => ({
@@ -512,83 +227,6 @@ export function SettingsDialog() {
             }
         }));
     };
-
-    // 测试 AI 连接
-    const handleTestConnection = async () => {
-        setTesting(true);
-        setTestResult(null);
-        try {
-            let requestBody: Record<string, unknown>;
-            if (config.aiProvider === 'openai') {
-                const instance = getSelectedInstance();
-                if (!instance?.apiKey) {
-                    setTestResult({ success: false, textSupport: false, visionSupport: false, textError: t.settings?.ai?.validationApiKeyRequired || 'API Key is required' });
-                    setTesting(false);
-                    return;
-                }
-                requestBody = {
-                    provider: 'openai',
-                    apiKey: instance.apiKey,
-                    baseUrl: instance.baseUrl,
-                    model: instance.model,
-                    language: language
-                };
-            } else if (config.aiProvider === 'gemini') {
-                if (!config.gemini?.apiKey) {
-                    setTestResult({ success: false, textSupport: false, visionSupport: false, textError: t.settings?.ai?.validationApiKeyRequired || 'API Key is required' });
-                    setTesting(false);
-                    return;
-                }
-                requestBody = {
-                    provider: 'gemini',
-                    apiKey: config.gemini.apiKey,
-                    baseUrl: config.gemini.baseUrl,
-                    model: config.gemini.model,
-                    language: language
-                };
-            } else if (config.aiProvider === 'azure') {
-                if (!config.azure?.apiKey || !config.azure?.endpoint || !config.azure?.deploymentName) {
-                    setTestResult({ success: false, textSupport: false, visionSupport: false, textError: t.settings?.ai?.validationAzureEndpointRequired || 'Azure config is incomplete' });
-                    setTesting(false);
-                    return;
-                }
-                requestBody = {
-                    provider: 'azure',
-                    apiKey: config.azure.apiKey,
-                    endpoint: config.azure.endpoint,
-                    deploymentName: config.azure.deploymentName,
-                    apiVersion: config.azure.apiVersion,
-                    model: config.azure.model,
-                    language: language
-                };
-            } else {
-                setTesting(false);
-                return;
-            }
-
-            const response = await apiClient.post<{
-                success: boolean;
-                textSupport: boolean;
-                visionSupport: boolean;
-                textError?: string;
-                visionError?: string;
-                modelInfo?: string;
-            }>('/api/ai/test', requestBody);
-
-            setTestResult(response);
-        } catch (error) {
-            console.error('[SettingsDialog] AI connection test failed', error);
-            setTestResult({
-                success: false,
-                textSupport: false,
-                visionSupport: false,
-                textError: error instanceof Error ? error.message : String(error)
-            });
-        } finally {
-            setTesting(false);
-        }
-    };
-
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -605,6 +243,14 @@ export function SettingsDialog() {
                         {t.settings?.desc || 'Manage your preferences and data.'}
                     </DialogDescription>
                 </DialogHeader>
+                {feedback && (
+                    <p
+                        className={feedback.type === "error" ? "rounded-md bg-destructive/10 p-3 text-sm text-destructive" : "rounded-md bg-green-50 p-3 text-sm text-green-800"}
+                        role={feedback.type === "error" ? "alert" : "status"}
+                    >
+                        {feedback.message}
+                    </p>
+                )}
 
                 <Tabs defaultValue="general" className="w-full">
                     <TabsList className={`grid w-full grid-cols-4 ${session?.user?.role === 'admin' ? 'sm:grid-cols-7' : 'sm:grid-cols-4'} gap-1 h-auto`}>
@@ -831,333 +477,13 @@ export function SettingsDialog() {
                     </TabsContent>
 
                     {/* AI Tab */}
-                    <TabsContent value="ai" className="space-y-4 py-4">
-                        {loading ? (
-                            <div className="flex justify-center py-4">
-                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                            </div>
-                        ) : (
-                            <div className="space-y-4 border rounded-lg p-4 bg-muted/30">
-                                <div className="space-y-2">
-                                    <Label>{t.settings?.tabs?.ai || "AI Provider"}</Label>
-                                    <Select
-                                        value={config.aiProvider}
-                                        onValueChange={(val: 'gemini' | 'openai' | 'azure') => setConfig(prev => ({ ...prev, aiProvider: val }))}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="gemini">Google Gemini</SelectItem>
-                                            <SelectItem value="openai">OpenAI / Compatible</SelectItem>
-                                            <SelectItem value="azure">Azure OpenAI</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                {config.aiProvider === 'openai' && (
-                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                                        {/* 实例选择器 */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between">
-                                                <Label>{t.settings?.ai?.instances || "Instance"}</Label>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={addOpenAIInstance}
-                                                    disabled={(config.openai?.instances?.length || 0) >= MAX_OPENAI_INSTANCES}
-                                                    className="h-7 px-2 text-xs"
-                                                >
-                                                    <Plus className="h-3 w-3 mr-1" />
-                                                    {t.settings?.ai?.addInstance || "Add"}
-                                                </Button>
-                                            </div>
-                                            {(config.openai?.instances?.length || 0) > 0 ? (
-                                                <div className="flex gap-2">
-                                                    <Select
-                                                        value={selectedInstanceId || config.openai?.activeInstanceId || ''}
-                                                        onValueChange={setActiveOpenAIInstance}
-                                                    >
-                                                        <SelectTrigger className="flex-1">
-                                                            <SelectValue placeholder={t.settings?.ai?.selectInstance || "Select Instance"} />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {(config.openai?.instances || []).map((instance) => (
-                                                                <SelectItem key={instance.id} value={instance.id}>
-                                                                    {instance.name}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                    {(config.openai?.instances?.length || 0) > 1 && (
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="icon"
-                                                            onClick={() => {
-                                                                const activeId = selectedInstanceId || config.openai?.activeInstanceId;
-                                                                if (activeId && confirm(t.settings?.ai?.confirmDelete || 'Delete this instance?')) {
-                                                                    deleteOpenAIInstance(activeId);
-                                                                }
-                                                            }}
-                                                            className="h-10 w-10 text-destructive hover:text-destructive"
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <p className="text-sm text-muted-foreground">
-                                                    {t.settings?.ai?.noInstances || "No instances configured. Click 'Add' to create one."}
-                                                </p>
-                                            )}
-                                            {(config.openai?.instances?.length || 0) >= MAX_OPENAI_INSTANCES && (
-                                                <p className="text-xs text-amber-600">
-                                                    {t.settings?.ai?.maxInstancesReached || "Maximum instances reached (10)"}
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        {/* 实例配置表单 */}
-                                        {getSelectedInstance() && (
-                                            <div className="space-y-3 p-3 border rounded-md bg-background">
-                                                <div className="space-y-2">
-                                                    <Label>{t.settings?.ai?.instanceName || "Instance Name"} <span className="text-destructive">*</span></Label>
-                                                    <Input
-                                                        value={getSelectedInstance()?.name || ''}
-                                                        onChange={(e) => updateOpenAIInstance('name', e.target.value)}
-                                                        placeholder="e.g. 智谱 GLM-4V"
-                                                        className={!getSelectedInstance()?.name?.trim() ? 'border-destructive' : ''}
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label>API Key <span className="text-destructive">*</span></Label>
-                                                    <div className="relative">
-                                                        <Input
-                                                            type={showApiKey ? "text" : "password"}
-                                                            value={getSelectedInstance()?.apiKey || ''}
-                                                            onChange={(e) => updateOpenAIInstance('apiKey', e.target.value)}
-                                                            placeholder="sk-..."
-                                                            className={`pr-10 ${!getSelectedInstance()?.apiKey?.trim() ? 'border-destructive' : ''}`}
-                                                        />
-                                                        <Button
-                                                            type="button"
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                                                            onClick={() => setShowApiKey(!showApiKey)}
-                                                        >
-                                                            {showApiKey ? (
-                                                                <EyeOff className="h-4 w-4 text-muted-foreground" />
-                                                            ) : (
-                                                                <Eye className="h-4 w-4 text-muted-foreground" />
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2 pt-4 border-t">
-                                                    <Label>Base URL <span className="text-destructive">*</span></Label>
-                                                    <Input
-                                                        value={getSelectedInstance()?.baseUrl || ''}
-                                                        onChange={(e) => updateOpenAIInstance('baseUrl', e.target.value)}
-                                                        placeholder="https://api.openai.com/v1"
-                                                        className={!getSelectedInstance()?.baseUrl?.trim() ? 'border-destructive' : ''}
-                                                    />
-                                                </div>
-                                                <ModelSelector
-                                                    provider="openai"
-                                                    apiKey={getSelectedInstance()?.apiKey}
-                                                    baseUrl={getSelectedInstance()?.baseUrl}
-                                                    currentModel={getSelectedInstance()?.model}
-                                                    onModelChange={(model) => updateOpenAIInstance('model', model)}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {config.aiProvider === 'gemini' && (
-                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                                        <div className="space-y-2">
-                                            <Label>API Key</Label>
-                                            <div className="relative">
-                                                <Input
-                                                    type={showApiKey ? "text" : "password"}
-                                                    value={config.gemini?.apiKey || ''}
-                                                    onChange={(e) => updateConfig('gemini', 'apiKey', e.target.value)}
-                                                    placeholder="AIza..."
-                                                    className="pr-10"
-                                                />
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                                                    onClick={() => setShowApiKey(!showApiKey)}
-                                                >
-                                                    {showApiKey ? (
-                                                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                                                    ) : (
-                                                        <Eye className="h-4 w-4 text-muted-foreground" />
-                                                    )}
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Base URL (Optional)</Label>
-                                            <Input
-                                                value={config.gemini?.baseUrl || ''}
-                                                onChange={(e) => updateConfig('gemini', 'baseUrl', e.target.value)}
-                                                placeholder="https://generativelanguage.googleapis.com"
-                                            />
-                                        </div>
-                                        <ModelSelector
-                                            provider="gemini"
-                                            apiKey={config.gemini?.apiKey}
-                                            baseUrl={config.gemini?.baseUrl}
-                                            currentModel={config.gemini?.model}
-                                            onModelChange={(model) => updateConfig('gemini', 'model', model)}
-                                        />
-                                    </div>
-                                )}
-
-                                {config.aiProvider === 'azure' && (
-                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                                        <div className="space-y-2">
-                                            <Label>{t.settings?.ai?.azureEndpoint || "Azure Endpoint"} <span className="text-destructive">*</span></Label>
-                                            <Input
-                                                value={config.azure?.endpoint || ''}
-                                                onChange={(e) => setConfig(prev => ({ ...prev, azure: { ...prev.azure, endpoint: e.target.value } }))}
-                                                placeholder={t.settings?.ai?.azureEndpointPlaceholder || "https://your-resource.openai.azure.com"}
-                                                className={!config.azure?.endpoint?.trim() ? 'border-destructive' : ''}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>{t.settings?.ai?.azureDeployment || "Deployment Name"} <span className="text-destructive">*</span></Label>
-                                            <Input
-                                                value={config.azure?.deploymentName || ''}
-                                                onChange={(e) => setConfig(prev => ({ ...prev, azure: { ...prev.azure, deploymentName: e.target.value } }))}
-                                                placeholder={t.settings?.ai?.azureDeploymentPlaceholder || "gpt-4o-deployment"}
-                                                className={!config.azure?.deploymentName?.trim() ? 'border-destructive' : ''}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>API Key <span className="text-destructive">*</span></Label>
-                                            <div className="relative">
-                                                <Input
-                                                    type={showApiKey ? "text" : "password"}
-                                                    value={config.azure?.apiKey || ''}
-                                                    onChange={(e) => setConfig(prev => ({ ...prev, azure: { ...prev.azure, apiKey: e.target.value } }))}
-                                                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                                    className={`pr-10 ${!config.azure?.apiKey?.trim() ? 'border-destructive' : ''}`}
-                                                />
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                                                    onClick={() => setShowApiKey(!showApiKey)}
-                                                >
-                                                    {showApiKey ? (
-                                                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                                                    ) : (
-                                                        <Eye className="h-4 w-4 text-muted-foreground" />
-                                                    )}
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>{t.settings?.ai?.azureApiVersion || "API Version"}</Label>
-                                            <Input
-                                                value={config.azure?.apiVersion || ''}
-                                                onChange={(e) => setConfig(prev => ({ ...prev, azure: { ...prev.azure, apiVersion: e.target.value } }))}
-                                                placeholder={t.settings?.ai?.azureApiVersionPlaceholder || "2024-02-15-preview"}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>{t.settings?.ai?.azureModel || "Model Display Name"}</Label>
-                                            <Input
-                                                value={config.azure?.model || ''}
-                                                onChange={(e) => setConfig(prev => ({ ...prev, azure: { ...prev.azure, model: e.target.value } }))}
-                                                placeholder="gpt-4o"
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-                                {/* 测试连接和保存按钮 */}
-                                <div className="space-y-3 pt-3 border-t">
-                                    <div className="flex gap-2">
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={handleTestConnection}
-                                            disabled={testing || saving}
-                                            className="flex-1"
-                                        >
-                                            {testing ? (
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            ) : (
-                                                <Zap className="mr-2 h-4 w-4" />
-                                            )}
-                                            {testing ? (t.settings?.ai?.testing || "测试中...") : (t.settings?.ai?.testConnection || "测试连接")}
-                                        </Button>
-                                        <Button onClick={handleSaveSettings} disabled={saving || testing} className="flex-1">
-                                            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            {t.settings?.ai?.save || "Save AI Settings"}
-                                        </Button>
-                                    </div>
-
-                                    {/* 测试结果显示 */}
-                                    {testResult && (
-                                        <div className={`p-3 rounded-md text-sm ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                                            <div className="flex items-center gap-2 font-medium mb-2">
-                                                {testResult.success ? (
-                                                    <>
-                                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
-                                                        <span className="text-green-700">{t.settings?.ai?.testSuccess || "连接成功"}</span>
-                                                        {testResult.modelInfo && <span className="text-green-600 text-xs">({testResult.modelInfo})</span>}
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <XCircle className="h-4 w-4 text-red-600" />
-                                                        <span className="text-red-700">{t.settings?.ai?.testFailed || "连接失败"}</span>
-                                                    </>
-                                                )}
-                                            </div>
-                                            {testResult.success && (
-                                                <div className="space-y-1 text-xs">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-muted-foreground">{t.settings?.ai?.textSupport || "文本生成"}:</span>
-                                                        <span className="text-green-600">✓ {t.settings?.ai?.supported || "支持"}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-muted-foreground">{t.settings?.ai?.visionSupport || "图像识别/多模态"}:</span>
-                                                        {testResult.visionSupport ? (
-                                                            <span className="text-green-600">✓ {t.settings?.ai?.supported || "支持"}</span>
-                                                        ) : (
-                                                            <span className="text-amber-600">✗ {
-                                                                testResult.visionError
-                                                                    ? ((t.settings?.ai?.errors as Record<string, string>)?.[testResult.visionError] || testResult.visionError.replace('UNKNOWN:', ''))
-                                                                    : (t.settings?.ai?.notSupported || "不支持")
-                                                            }</span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-muted-foreground/60 text-[10px] pl-1">* 由于网络问题，可能测试结果不准确</p>
-                                                </div>
-                                            )}
-                                            {!testResult.success && testResult.textError && (
-                                                <p className="text-red-600 text-xs mt-1">{
-                                                    (t.settings?.ai?.errors as Record<string, string>)?.[testResult.textError]
-                                                    || testResult.textError.replace('UNKNOWN:', '')
-                                                }</p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </TabsContent>
+                    <AiSettingsSection
+                        config={config}
+                        setConfig={setConfig}
+                        loading={loading}
+                        saving={saving}
+                        onSave={handleSaveSettings}
+                    />
 
                     {/* Prompts Tab */}
                     <TabsContent value="prompts" className="space-y-4 py-4">
@@ -1191,239 +517,11 @@ export function SettingsDialog() {
                     }
 
                     {/* Danger Zone Tab */}
-                    <TabsContent value="danger" className="space-y-4 py-4">
-                        <div className="space-y-3">
-                            {/* Data Management Section - Available to all users */}
-                            <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
-                                <h4 className="text-sm font-bold text-blue-900 mb-3">
-                                    {t.settings?.dataManagement || "Data Management"}
-                                </h4>
-
-                                {/* Export */}
-                                <div className="mb-4">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-sm text-blue-800 font-medium">
-                                            {t.settings?.exportData || "Export Data"}
-                                        </span>
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handleExportData('user')}
-                                                disabled={exporting}
-                                                className="bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-300"
-                                            >
-                                                {exporting ? (
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    <Download className="mr-2 h-4 w-4" />
-                                                )}
-                                                {t.settings?.exportData || "Export"}
-                                            </Button>
-                                            {session?.user?.role === 'admin' && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleExportData('all')}
-                                                    disabled={exporting}
-                                                    className="bg-orange-100 hover:bg-orange-200 text-orange-900 border-orange-300"
-                                                >
-                                                    {exporting ? (
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <Download className="mr-2 h-4 w-4" />
-                                                    )}
-                                                    {t.settings?.exportAllData || "Export All"}
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <p className="text-xs text-blue-700">
-                                        {t.settings?.exportDataDesc || "Export all data as JSON file."}
-                                    </p>
-                                </div>
-
-                                {/* Import */}
-                                <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-sm text-blue-800 font-medium">
-                                            {t.settings?.importData || "Import Data"}
-                                        </span>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="file"
-                                                accept=".json"
-                                                onChange={handleImportFileChange}
-                                                className="hidden"
-                                                id="import-file-input"
-                                                disabled={importing}
-                                            />
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => document.getElementById('import-file-input')?.click()}
-                                                disabled={importing}
-                                                className="bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-300"
-                                            >
-                                                {importing ? (
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    <Upload className="mr-2 h-4 w-4" />
-                                                )}
-                                                {selectedFileName || t.settings?.selectFile || "Select File"}
-                                            </Button>
-                                            {selectedFile && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleImportData('user')}
-                                                    disabled={importing}
-                                                    className="bg-green-100 hover:bg-green-200 text-green-900 border-green-300"
-                                                >
-                                                    {importing ? (
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                                                    )}
-                                                    {t.settings?.importData || "Import"}
-                                                </Button>
-                                            )}
-                                            {selectedFile && session?.user?.role === 'admin' && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleImportData('all')}
-                                                    disabled={importing}
-                                                    className="bg-orange-100 hover:bg-orange-200 text-orange-900 border-orange-300"
-                                                >
-                                                    {importing ? (
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                                                    )}
-                                                    {t.settings?.importAllData || "Import All"}
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <p className="text-xs text-blue-700">
-                                        {t.settings?.importDataDesc || "Import data from JSON file. Existing data will be skipped."}
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Migrate Tags (Admin Only) */}
-                            {session?.user?.role === 'admin' && (
-                                <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm text-blue-900 font-bold flex items-center gap-2">
-                                                <RefreshCw className="h-4 w-4" />
-                                                {t.settings?.migrateTags || "Migrate Tags"}
-                                            </span>
-                                        </div>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handleMigrateTags}
-                                            disabled={migratingTags}
-                                            className="bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-300"
-                                        >
-                                            {migratingTags ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                                <RefreshCw className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    </div>
-                                    <p className="text-xs text-blue-800 mt-2 font-medium">
-                                        {t.settings?.migrateTagsDesc || 'Re-populates standard tags from file'}
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* Clear Practice Data */}
-                            <div className="p-4 border border-red-200 rounded-lg bg-red-50">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-red-700 font-medium">
-                                        {t.settings?.clearData || "Clear Practice Data"}
-                                    </span>
-                                    <Button
-                                        variant="destructive"
-                                        size="sm"
-                                        onClick={handleClearData}
-                                        disabled={clearingPractice}
-                                    >
-                                        {clearingPractice ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <Trash2 className="h-4 w-4" />
-                                        )}
-                                    </Button>
-                                </div>
-                                <p className="text-xs text-red-600 mt-2">
-                                    {t.settings?.clearDataDesc || 'This will permanently delete all practice history. Irreversible.'}
-                                </p>
-                            </div>
-
-                            {/* Clear Error Data */}
-                            <div className="p-4 border border-red-200 rounded-lg bg-red-50">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-red-700 font-medium">
-                                        {t.settings?.clearErrorData || "Clear Error Data"}
-                                    </span>
-                                    <Button
-                                        variant="destructive"
-                                        size="sm"
-                                        onClick={handleClearErrorData}
-                                        disabled={clearingError}
-                                    >
-                                        {clearingError ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <Trash2 className="h-4 w-4" />
-                                        )}
-                                    </Button>
-                                </div>
-                                <p className="text-xs text-red-600 mt-2">
-                                    {t.settings?.clearErrorDataDesc || 'This will permanently delete all error items. Irreversible.'}
-                                </p>
-                            </div>
-
-                            {/* System Reset (Admin Only) */}
-                            {session?.user?.role === 'admin' && (
-                                <>
-                                    {/* System Reset */}
-                                    <div className="p-4 border border-red-600/50 rounded-lg bg-red-100/50">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex flex-col">
-                                                <span className="text-sm text-red-900 font-bold flex items-center gap-2">
-                                                    <AlertTriangle className="h-4 w-4" />
-                                                    {t.settings?.systemReset || "System Initialization"}
-                                                </span>
-                                            </div>
-                                            <Button
-                                                variant="destructive"
-                                                size="sm"
-                                                onClick={handleSystemReset}
-                                                disabled={systemResetting}
-                                                className="bg-red-700 hover:bg-red-800"
-                                            >
-                                                {systemResetting ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    <Trash2 className="h-4 w-4" />
-                                                )}
-                                            </Button>
-                                        </div>
-                                        <p className="text-xs text-red-800 mt-2 font-medium">
-                                            {t.settings?.systemResetDesc || 'Resets the system to factory state. Deletes ALL data.'}
-                                        </p>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </TabsContent>
+                    <DangerSettingsSection
+                        isAdmin={session?.user?.role === "admin"}
+                        onFeedback={setFeedback}
+                        onClose={() => setOpen(false)}
+                    />
 
                     {/* About Tab */}
                     <TabsContent value="about" className="space-y-4 py-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
@@ -18,81 +18,80 @@ import {
 import { Trash2, Ban, CheckCircle, Loader2 } from "lucide-react";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { AdminUser, AppConfig } from "@/types/api";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export function UserManagement() {
     const { data: session } = useSession();
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [allowRegistration, setAllowRegistration] = useState(true);
     const [savingRegistration, setSavingRegistration] = useState(false);
+    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
-    useEffect(() => {
-        fetchUsers();
-        fetchConfig();
-    }, []);
-
-    const fetchConfig = async () => {
+    const fetchConfig = useCallback(async () => {
         try {
             const data = await apiClient.get<AppConfig>("/api/settings");
             setAllowRegistration(data.allowRegistration !== false);
         } catch (error) {
             console.error("Failed to fetch config", error);
+            setFeedback({ role: "alert", message: t.common.error });
         }
-    };
+    }, [t.common.error]);
 
     const handleToggleRegistration = async (checked: boolean) => {
         setSavingRegistration(true);
         try {
             await apiClient.post("/api/settings", { allowRegistration: checked });
             setAllowRegistration(checked);
+            setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Saved successfully" });
         } catch (error) {
             console.error("Failed to update registration setting", error);
-            alert(t.common.error);
+            setFeedback({ role: "alert", message: t.common.error });
         } finally {
             setSavingRegistration(false);
         }
     };
 
-    const fetchUsers = async () => {
+    const fetchUsers = useCallback(async () => {
         setLoading(true);
         try {
             const data = await apiClient.get<AdminUser[]>("/api/admin/users");
             setUsers(data);
         } catch (error) {
             console.error("Failed to fetch users", error);
+            setFeedback({ role: "alert", message: t.common.error });
         } finally {
             setLoading(false);
         }
-    };
+    }, [t.common.error]);
+
+    useEffect(() => {
+        fetchUsers();
+        fetchConfig();
+    }, [fetchConfig, fetchUsers]);
 
     const handleToggleStatus = async (user: AdminUser) => {
-        const confirmMsg = user.isActive
-            ? t.admin.confirmDisable
-            : t.admin.confirmEnable;
-
-        if (!confirm(confirmMsg)) return;
-
         try {
             await apiClient.patch(`/api/admin/users/${user.id}`, { isActive: !user.isActive });
-            fetchUsers();
+            await fetchUsers();
+            setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Saved successfully" });
         } catch (error) {
             console.error("Failed to update user status", error);
-            alert(t.common.error);
+            setFeedback({ role: "alert", message: t.common.error });
         }
     };
 
     const handleDelete = async (user: AdminUser) => {
-        if (!confirm(t.admin.confirmDelete)) return;
-
         try {
             await apiClient.delete(`/api/admin/users/${user.id}`);
-            fetchUsers();
+            await fetchUsers();
+            setFeedback({ role: "status", message: t.common.messages?.deleteSuccess || "Deleted successfully" });
         } catch (error: unknown) {
             console.error("Failed to delete user", error);
             const data = error instanceof ApiError ? error.data : null;
             const text = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : t.common.error;
-            alert(text);
+            setFeedback({ role: "alert", message: text });
         }
     };
 
@@ -102,6 +101,11 @@ export function UserManagement() {
 
     return (
         <div className="space-y-4">
+            {feedback && (
+                <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
+                    {feedback.message}
+                </p>
+            )}
             {/* 注册开关 */}
             <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
                 <div className="space-y-0.5">
@@ -148,26 +152,20 @@ export function UserManagement() {
                                 {new Date(user.createdAt).toLocaleDateString()}
                             </div>
                             <div className="flex gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleToggleStatus(user)}
-                                    disabled={user.id === session?.user?.id}
+                                <ConfirmDialog
+                                    title={user.isActive ? t.admin.disable : t.admin.enable}
+                                    description={user.isActive ? t.admin.confirmDisable : t.admin.confirmEnable}
+                                    onConfirm={() => handleToggleStatus(user)}
                                 >
-                                    {user.isActive ? (
-                                        <Ban className="h-4 w-4 text-orange-500" />
-                                    ) : (
-                                        <CheckCircle className="h-4 w-4 text-green-500" />
-                                    )}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleDelete(user)}
-                                    disabled={user.id === session?.user?.id}
-                                >
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                                    <Button variant="ghost" size="sm" disabled={user.id === session?.user?.id}>
+                                        {user.isActive ? <Ban className="h-4 w-4 text-orange-500" /> : <CheckCircle className="h-4 w-4 text-green-500" />}
+                                    </Button>
+                                </ConfirmDialog>
+                                <ConfirmDialog title={t.admin.delete} description={t.admin.confirmDelete} onConfirm={() => handleDelete(user)}>
+                                    <Button variant="ghost" size="sm" disabled={user.id === session?.user?.id}>
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                </ConfirmDialog>
                             </div>
                         </div>
                     </div>
@@ -216,28 +214,20 @@ export function UserManagement() {
                                     </Badge>
                                 </TableCell>
                                 <TableCell className="text-right space-x-2">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleToggleStatus(user)}
-                                        disabled={user.id === session?.user?.id}
+                                    <ConfirmDialog
                                         title={user.isActive ? t.admin.disable : t.admin.enable}
+                                        description={user.isActive ? t.admin.confirmDisable : t.admin.confirmEnable}
+                                        onConfirm={() => handleToggleStatus(user)}
                                     >
-                                        {user.isActive ? (
-                                            <Ban className="h-4 w-4 text-orange-500" />
-                                        ) : (
-                                            <CheckCircle className="h-4 w-4 text-green-500" />
-                                        )}
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleDelete(user)}
-                                        disabled={user.id === session?.user?.id}
-                                        title={t.admin.delete}
-                                    >
-                                        <Trash2 className="h-4 w-4 text-destructive" />
-                                    </Button>
+                                        <Button variant="ghost" size="sm" disabled={user.id === session?.user?.id} title={user.isActive ? t.admin.disable : t.admin.enable}>
+                                            {user.isActive ? <Ban className="h-4 w-4 text-orange-500" /> : <CheckCircle className="h-4 w-4 text-green-500" />}
+                                        </Button>
+                                    </ConfirmDialog>
+                                    <ConfirmDialog title={t.admin.delete} description={t.admin.confirmDelete} onConfirm={() => handleDelete(user)}>
+                                        <Button variant="ghost" size="sm" disabled={user.id === session?.user?.id} title={t.admin.delete}>
+                                            <Trash2 className="h-4 w-4 text-destructive" />
+                                        </Button>
+                                    </ConfirmDialog>
                                 </TableCell>
                             </TableRow>
                         ))}

@@ -8,7 +8,8 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:analytics');
 
-export async function GET(_req: Request) {
+export async function GET(request: Request) {
+    void request;
     const session = await getServerSession(authOptions);
 
     if (!session || !session.user) {

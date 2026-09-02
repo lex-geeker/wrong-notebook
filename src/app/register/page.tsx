@@ -13,7 +13,7 @@ import { RegisterRequest } from "@/types/api";
 
 export default function RegisterPage() {
     const router = useRouter();
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -62,7 +62,6 @@ export default function RegisterPage() {
                 enrollmentYear: parseInt(enrollmentYear)
             });
 
-            alert(t.auth?.register?.success || 'Registration successful! Please login');
             router.push("/login");
         } catch (error: unknown) {
             const data = error instanceof ApiError ? error.data : null;

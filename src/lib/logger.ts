@@ -223,12 +223,7 @@ function createLoggerInstance(baseContext: LogContext = {}): Logger {
 
     // Decorative box logging (only in development)
     box: (title: string, content?: string | LogContext, emoji: string = '📋') => {
-      if (!isPrettyMode) {
-        // In production, just log as JSON
-        const ctx = typeof content === 'string' ? { content } : (content || {});
-        console.log(JSON.stringify({ level: 'info', time: new Date().toISOString(), ...baseContext, title, ...ctx, msg: title }));
-        return;
-      }
+      if (!isPrettyMode) return;
 
       const width = 80;
       const line = '='.repeat(width);

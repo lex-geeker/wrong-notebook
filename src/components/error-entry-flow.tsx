@@ -57,6 +57,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
     const [autoSelectedNotebookId, setAutoSelectedNotebookId] = useState<string | null>(null);
     const [config, setConfig] = useState<AppConfig | null>(null);
+    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const selectedNotebookId = fixedNotebookId || autoSelectedNotebookId || undefined;
     const selectedNotebook = notebooks.find(({ id }) => id === selectedNotebookId);
@@ -69,8 +70,11 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
         ]).then(([notebookData, configData]) => {
             setNotebooks(notebookData);
             setConfig(configData);
-        }).catch(error => console.error('[ErrorEntryFlow] Failed to load entry config', error));
-    }, []);
+        }).catch(error => {
+            console.error('[ErrorEntryFlow] Failed to load entry config', error);
+            setFeedback({ role: "alert", message: t.common.messages?.loadFailed || "Failed to load entry settings" });
+        });
+    }, [t.common.messages?.loadFailed]);
 
     useEffect(() => () => {
         if (croppingImage) URL.revokeObjectURL(croppingImage);
@@ -95,9 +99,12 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
         const translated = backendMessage
             ? Object.entries(t.errors || {}).find(([key]) => key === backendMessage)?.[1]
             : null;
-        alert(typeof translated === "string"
-            ? translated
-            : backendMessage || t.common.messages?.analysisFailed || "Analysis failed");
+        setFeedback({
+            role: "alert",
+            message: typeof translated === "string"
+                ? translated
+                : backendMessage || t.common.messages?.analysisFailed || "Analysis failed",
+        });
     };
 
     const finishAnalysis = (data: ParsedQuestion, image: string | null) => {
@@ -110,6 +117,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
 
     const handleAnalyze = async (file: File) => {
         try {
+            setFeedback(null);
             setAnalysisStep("compressing");
             const imageBase64 = await processImageFile(file);
             setAnalysisStep("analyzing");
@@ -132,6 +140,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
 
     const handleTextSubmit = async (questionText: string) => {
         try {
+            setFeedback(null);
             setAnalysisStep("analyzing");
             const result = await apiClient.post<{
                 answerText: string;
@@ -171,7 +180,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
             originalImageUrl: image || "",
         });
         if (result.duplicate) console.info('[ErrorEntryFlow] Duplicate submission reused');
-        alert(t.common.messages?.saveSuccess || "Saved successfully");
+        setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Saved successfully" });
         setParsedData(null);
         setCurrentImage(null);
         setStep("upload");
@@ -183,7 +192,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
             await save(data, currentImage);
         } catch (error) {
             console.error('[ErrorEntryFlow] Save failed', error);
-            alert(t.common.messages?.saveFailed || "Save failed");
+            setFeedback({ role: "alert", message: t.common.messages?.saveFailed || "Save failed" });
         }
     };
 
@@ -198,7 +207,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
             }, null);
         } catch (error) {
             console.error('[ErrorEntryFlow] Direct save failed', error);
-            alert(t.common.messages?.saveFailed || "Save failed");
+            setFeedback({ role: "alert", message: t.common.messages?.saveFailed || "Save failed" });
         } finally {
             setAnalysisStep("idle");
         }
@@ -211,6 +220,14 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
     return (
         <section id="error-entry" className="space-y-4">
             <ProgressFeedback status={analysisStep} progress={progress} message={progressMessage} />
+            {feedback && (
+                <p
+                    role={feedback.role}
+                    className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}
+                >
+                    {feedback.message}
+                </p>
+            )}
             {step === "upload" && (
                 <>
                     <div className="flex gap-2 border-b" role="tablist">
@@ -247,7 +264,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
                             key={selectedNotebookId || "unselected"}
                             onSubmit={handleDirectSave}
                             defaultNotebookId={selectedNotebookId}
-                            defaultNotebookName={selectedNotebook?.name}
+                            notebooks={notebooks}
                             isSaving={analysisStep === "saving"}
                         />
                     )}
@@ -259,6 +276,7 @@ export function ErrorEntryFlow({ fixedNotebookId, onSaved }: ErrorEntryFlowProps
                     imagePreview={currentImage}
                     initialSubjectId={selectedNotebookId}
                     aiTimeout={aiTimeout}
+                    notebooks={notebooks}
                     onSave={handleSave}
                     onCancel={() => setStep("upload")}
                 />

@@ -8,7 +8,8 @@ import { createLogger } from "@/lib/logger";
 
 const logger = createLogger('api:admin:system-reset');
 
-export async function POST(_request: Request) {
+export async function POST(request: Request) {
+    void request;
     const session = await getServerSession(authOptions);
 
     if (!session || !session.user) {
@@ -39,6 +40,7 @@ export async function POST(_request: Request) {
         await prisma.$transaction(async (tx) => {
             // 1. Delete Practice Records (dependent on nothing usually, or User/ErrorItem)
             await tx.practiceRecord.deleteMany({});
+            await tx.practiceSession.deleteMany({});
 
             // 2. Delete Error Items (cascade deletes tags? No, m-to-n. But we want to wipe items)
             await tx.errorItem.deleteMany({});

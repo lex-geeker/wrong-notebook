@@ -150,6 +150,19 @@ describe('logger module', () => {
     });
 
     describe('生产环境 JSON 输出', () => {
+        it('生产环境不输出 box 内容', async () => {
+            vi.resetModules();
+            vi.stubEnv('NODE_ENV', 'production');
+            const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+            const { createLogger } = await import('@/lib/logger');
+
+            createLogger('test').box('Sensitive', { prompt: 'student data' });
+
+            expect(consoleSpy).not.toHaveBeenCalled();
+            vi.unstubAllEnvs();
+            vi.resetModules();
+        });
+
         it('在生产环境应该输出 JSON 格式', async () => {
             // 注意：由于模块缓存，这个测试可能需要特殊处理
             // 这里我们验证 JSON.stringify 不会抛出错误

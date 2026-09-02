@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BookOpen, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface NotebookCardProps {
     id: string;
@@ -13,9 +14,10 @@ interface NotebookCardProps {
     onRename?: () => void;
     onDelete?: (id: string) => void;
     itemLabel?: string;
+    deleteConfirm?: string;
 }
 
-export function NotebookCard({ id, name, errorCount, onClick, onRename, onDelete, itemLabel = "items" }: NotebookCardProps) {
+export function NotebookCard({ id, name, errorCount, onClick, onRename, onDelete, itemLabel = "items", deleteConfirm = "Delete this notebook?" }: NotebookCardProps) {
     return (
         <Card
             className="cursor-pointer hover:border-primary/50 transition-colors relative group"
@@ -42,17 +44,25 @@ export function NotebookCard({ id, name, errorCount, onClick, onRename, onDelete
                             </Button>
                         )}
                         {onDelete && (
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="h-8 w-8"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDelete(id);
-                                }}
-                            >
-                                <Trash2 className={`h-4 w-4 ${errorCount > 0 ? "text-muted-foreground" : "text-destructive"}`} />
-                            </Button>
+                            errorCount > 0 ? (
+                                <Button
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="h-8 w-8"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDelete(id);
+                                    }}
+                                >
+                                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                            ) : (
+                                <ConfirmDialog title={name} description={deleteConfirm} onConfirm={() => onDelete(id)}>
+                                    <Button variant="ghost" size="icon-sm" className="h-8 w-8" onClick={event => event.stopPropagation()}>
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                </ConfirmDialog>
+                            )
                         )}
                     </div>
                 </div>

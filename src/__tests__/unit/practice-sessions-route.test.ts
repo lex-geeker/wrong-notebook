@@ -106,7 +106,9 @@ describe("POST /api/practice/sessions", () => {
         expect(mocks.createSession).not.toHaveBeenCalled();
     });
 
-    it("reuses an unfinished daily session without selecting or generating again", async () => {
+    it("reuses only an unfinished daily session from the current China day", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-09-02T04:00:00Z"));
         mocks.findSession.mockResolvedValue({
             id: "active",
             userId: "user-1",
@@ -122,8 +124,17 @@ describe("POST /api/practice/sessions", () => {
 
         expect(response.status).toBe(200);
         expect((await response.json()).id).toBe("active");
+        expect(mocks.findSession).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                startedAt: {
+                    gte: new Date("2026-09-01T16:00:00.000Z"),
+                    lt: new Date("2026-09-02T16:00:00.000Z"),
+                },
+            }),
+        }));
         expect(mocks.findMany).not.toHaveBeenCalled();
         expect(mocks.createSession).not.toHaveBeenCalled();
+        vi.useRealTimers();
     });
 
     it("orders due reviews by date, skips future items, and caps daily work at five", async () => {

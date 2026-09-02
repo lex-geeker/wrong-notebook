@@ -3,31 +3,35 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, internalError } from "@/lib/api-errors";
+import { z } from "zod";
+import { unauthorized, internalError, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE } from "@/lib/constants/pagination";
 
 const logger = createLogger('api:error-items:list');
+const querySchema = z.object({
+    subjectId: z.string().trim().min(1).max(200).optional(),
+    query: z.string().trim().min(1).max(500).optional(),
+    mastery: z.enum(["0", "1", "2"]).optional(),
+    timeRange: z.enum(["all", "week", "month"]).default("all"),
+    tag: z.string().trim().min(1).max(100).optional(),
+    view: z.enum(["summary", "print"]).default("summary"),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(MIN_PAGE_SIZE).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+    gradeSemester: z.string().trim().min(1).max(100).optional(),
+    paperLevel: z.enum(["all", "a", "b", "other", "A", "B", "Other"]).default("all"),
+});
 
 export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
-
-    const { searchParams } = new URL(req.url);
-    const subjectId = searchParams.get("subjectId");
-    const query = searchParams.get("query");
-    const mastery = searchParams.get("mastery");
-    const timeRange = searchParams.get("timeRange");
-    const tag = searchParams.get("tag");
-    const view = searchParams.get("view") === "print" ? "print" : "summary";
-
-    // 分页参数
-    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, parseInt(searchParams.get("pageSize") || String(DEFAULT_PAGE_SIZE), 10)));
 
     try {
         if (!session?.user?.id) {
             return unauthorized("Authentication required");
         }
+        const parsed = querySchema.safeParse(Object.fromEntries(new URL(req.url).searchParams));
+        if (!parsed.success) return badRequest("Invalid list filters", parsed.error.flatten());
+        const { subjectId, query, mastery, timeRange, tag, view, page, pageSize, gradeSemester, paperLevel } = parsed.data;
 
         const whereClause: Prisma.ErrorItemWhereInput = {
             userId: session.user.id,
@@ -55,7 +59,7 @@ export async function GET(req: Request) {
         }
 
         // Mastery filter
-        if (mastery && ["0", "1", "2"].includes(mastery)) {
+        if (mastery) {
             whereClause.masteryLevel = Number(mastery);
         }
 
@@ -81,14 +85,12 @@ export async function GET(req: Request) {
             });
         }
 
-        const gradeSemester = searchParams.get("gradeSemester");
         if (gradeSemester) {
             whereClause.gradeSemester = gradeSemester;
         }
 
         // Paper Level filter
-        const paperLevel = searchParams.get("paperLevel");
-        if (paperLevel && paperLevel !== "all") {
+        if (paperLevel !== "all") {
             whereClause.paperLevel = paperLevel;
         }
 

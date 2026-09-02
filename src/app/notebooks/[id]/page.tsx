@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { Plus, House, Pencil } from "lucide-react";
@@ -18,30 +18,29 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function NotebookDetailPage() {
     const params = useParams();
-    const router = useRouter();
     const { t } = useLanguage();
     const [notebook, setNotebook] = useState<Notebook | null>(null);
     const [loading, setLoading] = useState(true);
     const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+    const [loadError, setLoadError] = useState("");
 
-    useEffect(() => {
-        if (params.id) {
-            fetchNotebook(params.id as string);
-        }
-    }, [params.id]);
-
-    const fetchNotebook = async (id: string) => {
+    const fetchNotebook = useCallback(async (id: string) => {
         try {
             const data = await apiClient.get<Notebook>(`/api/notebooks/${id}`);
             setNotebook(data);
         } catch (error) {
             console.error("Failed to fetch notebook:", error);
-            alert(t.notebooks?.notFound || "Notebook not found");
-            router.push("/notebooks");
+            setLoadError(t.notebooks?.notFound || "Notebook not found");
         } finally {
             setLoading(false);
         }
-    };
+    }, [t.notebooks?.notFound]);
+
+    useEffect(() => {
+        if (params.id) {
+            fetchNotebook(params.id as string);
+        }
+    }, [fetchNotebook, params.id]);
 
     const handleRename = async (name: string) => {
         if (!notebook) return;
@@ -57,7 +56,14 @@ export default function NotebookDetailPage() {
         );
     }
 
-    if (!notebook) return null;
+    if (!notebook) return (
+        <main className="min-h-screen p-8 bg-background">
+            <div className="mx-auto max-w-2xl space-y-4">
+                <BackButton fallbackUrl="/notebooks" />
+                <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{loadError}</p>
+            </div>
+        </main>
+    );
 
     return (
         <main className="min-h-screen p-4 md:p-8 bg-background">

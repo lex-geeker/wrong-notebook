@@ -46,6 +46,7 @@ interface CorrectionEditorProps {
     imagePreview?: string | null;
     initialSubjectId?: string;
     aiTimeout?: number;
+    notebooks: Notebook[];
 }
 
 type ReanswerErrorMessages = {
@@ -55,7 +56,7 @@ type ReanswerErrorMessages = {
     responseError?: string;
 };
 
-export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, initialSubjectId, aiTimeout }: CorrectionEditorProps) {
+export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, initialSubjectId, aiTimeout, notebooks }: CorrectionEditorProps) {
     const [data, setData] = useState<ParsedQuestionWithSubject>({
         ...initialData,
         wrongAnswerText: initialData.wrongAnswerText || "",
@@ -71,19 +72,11 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     const [isSaving, setIsSaving] = useState(false);
     const [isAnalyzingGeogebra, setIsAnalyzingGeogebra] = useState(false);
     const [geogebraError, setGeogebraError] = useState<string | null>(null);
+    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
-    const [notebooks, setNotebooks] = useState<Notebook[]>([]);
-
-
-
     // Fetch user info and calculate grade on mount
     useEffect(() => {
-        // Fetch notebooks for mapping
-        apiClient.get<Notebook[]>("/api/notebooks")
-            .then(setNotebooks)
-            .catch(err => console.error("Failed to fetch notebooks:", err));
-
         apiClient.get<UserProfile>("/api/user")
             .then(user => {
                 if (user && user.educationStage && user.enrollmentYear) {
@@ -98,11 +91,12 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
     // 重新解题函数
     const handleReanswer = async () => {
         if (!data.questionText.trim()) {
-            alert(t.editor.enterQuestionFirst || 'Please enter question text first');
+            setFeedback({ role: "alert", message: t.editor.enterQuestionFirst || 'Please enter question text first' });
             return;
         }
 
         setIsReanswering(true);
+        setFeedback(null);
         try {
             const requestBody = {
                 questionText: data.questionText,
@@ -135,7 +129,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 ),
             }));
 
-            alert(t.editor.reanswerSuccess || '✅ Answer and analysis updated!');
+            setFeedback({ role: "status", message: t.editor.reanswerSuccess || 'Answer and analysis updated!' });
         } catch (error: unknown) {
             console.error("Reanswer failed:", error);
             const apiError = error as { data?: { message?: string } };
@@ -152,7 +146,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 errorText = reanswerErrors.responseError || t.errors?.AI_RESPONSE_ERROR || errorText;
             }
 
-            alert(errorText);
+            setFeedback({ role: "alert", message: errorText });
 
         } finally {
             setIsReanswering(false);
@@ -161,11 +155,11 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
 
     const handleAnalyzeGeogebra = async () => {
         if (!data.questionText.trim()) {
-            alert(t.editor.enterQuestionFirst || '请先输入题目文本');
+            setFeedback({ role: "alert", message: t.editor.enterQuestionFirst || '请先输入题目文本' });
             return;
         }
         if (!data.answerText.trim()) {
-            alert('请先生成或输入答案');
+            setFeedback({ role: "alert", message: '请先生成或输入答案' });
             return;
         }
 
@@ -215,7 +209,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     <Button
                         onClick={async () => {
                             if (!data.subjectId) {
-                                alert(t.editor.messages?.selectNotebook || "Please select a notebook");
+                                setFeedback({ role: "alert", message: t.editor.messages?.selectNotebook || "Please select a notebook" });
                                 return;
                             }
                             if (isSaving) return; // 防止重复点击
@@ -243,6 +237,11 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     </Button>
                 </div>
             </div>
+            {feedback && (
+                <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
+                    {feedback.message}
+                </p>
+            )}
 
             <div className="grid gap-6 lg:grid-cols-2">
                 {/* 左侧：编辑区 */}
@@ -250,6 +249,8 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                     {imagePreview && (
                         <Card>
                             <CardContent className="p-4">
+                                {/* Preview may be a local blob URL and must remain a native image. */}
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={imagePreview} alt="Original" className="w-full rounded-md" />
                             </CardContent>
                         </Card>
@@ -260,6 +261,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                         <NotebookSelector
                             value={data.subjectId}
                             onChange={(id) => setData({ ...data, subjectId: id })}
+                            notebooks={notebooks}
                         />
                     </div>
 

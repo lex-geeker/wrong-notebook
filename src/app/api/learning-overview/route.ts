@@ -19,6 +19,8 @@ export async function GET() {
 
     try {
         const userId = session.user.id;
+        const now = new Date();
+        const todayStart = chinaDayStart(now);
         const weekStart = chinaDayStart(new Date(), 6);
         const [items, activeSession, completedDailySessions] = await Promise.all([
             prisma.errorItem.findMany({
@@ -42,7 +44,12 @@ export async function GET() {
                 },
             }),
             prisma.practiceSession.findFirst({
-                where: { userId, mode: "daily", endedAt: null },
+                where: {
+                    userId,
+                    mode: "daily",
+                    endedAt: null,
+                    startedAt: { gte: todayStart, lt: chinaDayStart(now, -1) },
+                },
                 orderBy: { startedAt: "desc" },
                 include: { items: { include: { record: true } } },
             }),
@@ -52,7 +59,6 @@ export async function GET() {
             }),
         ]);
 
-        const now = new Date();
         const reviewRecords = items.flatMap((item) => item.practiceRecords);
         const recentReviews = reviewRecords.filter((record) => record.createdAt >= weekStart);
         const errorTypeCounts = new Map<string, number>();

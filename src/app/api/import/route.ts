@@ -1,106 +1,164 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, internalError, badRequest, forbidden } from "@/lib/api-errors";
-import { createLogger } from "@/lib/logger";
+import { z } from "zod";
+import { authOptions } from "@/lib/auth";
+import { badRequest, forbidden, internalError, unauthorized } from "@/lib/api-errors";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
+import { createLogger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
 
-const logger = createLogger('api:import');
+const logger = createLogger("api:import");
+const idSchema = z.string().min(1).max(200);
+const dateSchema = z.string().refine(value => Number.isFinite(new Date(value).getTime()), "Invalid date");
+const nullableString = z.string().nullable();
 
-interface ImportData {
-    version: number;
-    exportedAt: string;
-    scope?: string;
-    user: {
-        id: string;
-        email: string;
-        name: string | null;
-        educationStage: string | null;
-        enrollmentYear: number | null;
-        role: string;
-    };
-    subjects: Array<{
-        id: string;
-        name: string;
-        userId: string;
-        createdAt: string;
-        updatedAt: string;
-    }>;
-    customTags: Array<{
-        id: string;
-        name: string;
-        subject: string;
-        parentId: string | null;
-        order: number;
-        code: string | null;
-        isSystem: boolean;
-        userId: string;
-        createdAt: string;
-        updatedAt: string;
-    }>;
-    errorItems: Array<{
-        id: string;
-        userId: string;
-        subjectId: string | null;
-        originalImageUrl: string;
-        ocrText: string | null;
-        questionText: string | null;
-        answerText: string | null;
-        analysis: string | null;
-        wrongAnswerText: string | null;
-        mistakeAnalysis: string | null;
-        mistakeStatus: string | null;
-        knowledgePoints?: string | null;
-        source: string | null;
-        errorType: string | null;
-        userNotes: string | null;
-        masteryLevel: number;
-        gradeSemester: string | null;
-        paperLevel: string | null;
-        createdAt: string;
-        updatedAt: string;
-        tags: Array<{
-            id: string;
-            name: string;
-            subject: string;
-            parentId?: string | null;
-            userId?: string | null;
-            isSystem?: boolean;
-        }>;
-    }>;
-    reviewSchedules?: Array<{
-        id: string;
-        errorItemId: string;
-        scheduledFor: string;
-        completedAt: string | null;
-        isCorrect: boolean | null;
-        createdAt: string;
-    }>;
-    practiceRecords: Array<{
-        id: string;
-        userId: string;
-        errorItemId?: string | null;
-        subject: string | null;
-        difficulty: string | null;
-        isCorrect: boolean | null;
-        answerInput?: string | null;
-        createdAt: string;
-    }>;
+const userSchema = z.object({
+    id: idSchema,
+    email: z.string().max(254).regex(/^[^\s@]+@[^\s@]+$/, "Invalid email format"),
+    password: z.string().min(1).max(1000),
+    name: z.string().max(200).nullable(),
+    educationStage: z.string().max(50).nullable(),
+    enrollmentYear: z.number().int().min(1900).max(3000).nullable(),
+    role: z.enum(["admin", "user"]),
+    isActive: z.boolean(),
+    createdAt: dateSchema,
+    updatedAt: dateSchema,
+});
+
+const legacyUserSchema = userSchema.omit({ password: true, isActive: true, createdAt: true, updatedAt: true });
+
+const subjectSchema = z.object({
+    id: idSchema,
+    name: z.string().min(1).max(200),
+    userId: idSchema,
+    createdAt: dateSchema,
+    updatedAt: dateSchema,
+});
+
+const tagRefSchema = z.object({
+    id: idSchema,
+    name: z.string().min(1).max(100),
+    subject: z.string().min(1).max(50),
+    parentId: idSchema.nullish(),
+    userId: idSchema.nullish(),
+    isSystem: z.boolean().optional(),
+});
+
+const customTagSchema = tagRefSchema.extend({
+    parentId: idSchema.nullable(),
+    order: z.number().int(),
+    code: z.string().max(100).nullable(),
+    isSystem: z.literal(false),
+    userId: idSchema,
+    createdAt: dateSchema,
+    updatedAt: dateSchema,
+    parent: tagRefSchema.nullable().optional(),
+});
+
+const errorItemSchema = z.object({
+    id: idSchema,
+    userId: idSchema,
+    subjectId: idSchema.nullable(),
+    originalImageUrl: z.string(),
+    ocrText: nullableString,
+    questionText: nullableString,
+    answerText: nullableString,
+    analysis: nullableString,
+    wrongAnswerText: nullableString,
+    mistakeAnalysis: nullableString,
+    mistakeStatus: nullableString,
+    geogebraCommands: nullableString.optional(),
+    knowledgePoints: nullableString.optional(),
+    source: nullableString,
+    errorType: nullableString,
+    userNotes: nullableString,
+    masteryLevel: z.number().int().min(0).max(2),
+    gradeSemester: nullableString,
+    paperLevel: nullableString,
+    createdAt: dateSchema,
+    updatedAt: dateSchema,
+    tags: z.array(tagRefSchema),
+});
+
+const practiceSessionSchema = z.object({
+    id: idSchema,
+    userId: idSchema,
+    mode: z.string().min(1).max(50),
+    questionSource: z.string().min(1).max(50),
+    language: z.string().min(1).max(10),
+    startedAt: dateSchema,
+    endedAt: dateSchema.nullable(),
+});
+
+const practiceSessionItemSchema = z.object({
+    id: idSchema,
+    sessionId: idSchema,
+    errorItemId: idSchema.nullable(),
+    position: z.number().int().min(0),
+    subjectName: nullableString,
+    gradeSemester: nullableString,
+    knowledgePoints: nullableString,
+    sourceQuestionText: z.string(),
+    sourceAnswerText: z.string(),
+    questionText: z.string(),
+    answerText: z.string(),
+    generationMode: z.string().min(1).max(50),
+});
+
+const practiceRecordSchema = z.object({
+    id: idSchema,
+    userId: idSchema,
+    sessionItemId: idSchema.nullish(),
+    errorItemId: idSchema.nullish(),
+    subject: nullableString,
+    difficulty: nullableString,
+    isCorrect: z.boolean().nullable(),
+    answerInput: nullableString.optional(),
+    createdAt: dateSchema,
+});
+
+const commonCollections = {
+    subjects: z.array(subjectSchema),
+    customTags: z.array(customTagSchema),
+    errorItems: z.array(errorItemSchema),
+    practiceRecords: z.array(practiceRecordSchema),
+};
+
+const v4Schema = z.object({
+    version: z.literal(4),
+    exportedAt: dateSchema,
+    scope: z.enum(["user", "all"]).default("user"),
+    user: legacyUserSchema,
+    ...commonCollections,
+});
+
+const v5Schema = z.object({
+    version: z.literal(5),
+    exportedAt: dateSchema,
+    scope: z.enum(["user", "all"]),
+    users: z.array(userSchema).min(1),
+    ...commonCollections,
+    practiceSessions: z.array(practiceSessionSchema),
+    practiceSessionItems: z.array(practiceSessionItemSchema),
+});
+
+const backupSchema = z.discriminatedUnion("version", [v4Schema, v5Schema]);
+type Backup = z.infer<typeof backupSchema>;
+
+class InvalidBackupError extends Error { }
+
+function asDate(value: string) {
+    return new Date(value);
 }
 
-/** Validate and parse a date string, returning undefined if invalid */
-function safeParseDate(dateStr: string | undefined | null): Date | undefined {
-    if (!dateStr) return undefined;
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? undefined : d;
+function requiredMapping(map: Map<string, string>, id: string, relation: string) {
+    const mapped = map.get(id);
+    if (!mapped) throw new InvalidBackupError(`Unknown ${relation}: ${id}`);
+    return mapped;
 }
 
-/** Validate masteryLevel is an integer in range [0, 2] */
-function safeMasteryLevel(val: unknown): number {
-    const n = typeof val === 'number' ? val : parseInt(String(val), 10);
-    if (!Number.isInteger(n) || n < 0 || n > 2) return 0;
-    return n;
+function requireOwner(actual: string, expected: string, relation: string) {
+    if (actual !== expected) throw new InvalidBackupError(`Cross-user ${relation} is not allowed`);
 }
 
 function parseLegacyTagNames(value: string | null | undefined): string[] {
@@ -108,7 +166,7 @@ function parseLegacyTagNames(value: string | null | undefined): string[] {
     try {
         const parsed: unknown = JSON.parse(value);
         return Array.isArray(parsed)
-            ? parsed.filter((name): name is string => typeof name === 'string' && name.length <= 100).slice(0, 20)
+            ? parsed.filter((name): name is string => typeof name === "string" && name.length <= 100).slice(0, 20)
             : [];
     } catch {
         return [];
@@ -117,264 +175,313 @@ function parseLegacyTagNames(value: string | null | undefined): string[] {
 
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
+    if (!session?.user?.id || !session.user.email) return unauthorized("Not authenticated");
 
-    if (!session?.user?.id || !session.user.email) {
-        return unauthorized("Not authenticated");
-    }
-
-    const user = { id: session.user.id, email: session.user.email };
-
-    const { searchParams } = new URL(req.url);
-    const importAll = searchParams.get('all') === 'true';
-
-    // 只有管理员可以导入全部数据
-    if (importAll && session.user.role !== 'admin') {
-        return forbidden("Admin role required");
-    }
+    const currentUser = { id: session.user.id, email: session.user.email };
+    const importAll = new URL(req.url).searchParams.get("all") === "true";
+    if (importAll && session.user.role !== "admin") return forbidden("Admin role required");
 
     try {
-        const contentLength = req.headers.get('content-length');
-        if (contentLength && parseInt(contentLength, 10) > 50 * 1024 * 1024) {
+        const contentLength = Number(req.headers.get("content-length"));
+        if (Number.isFinite(contentLength) && contentLength > 50 * 1024 * 1024) {
             return badRequest("Request body too large (max 50MB)");
         }
 
-        const body = await req.json() as ImportData;
-
-        // 验证数据格式
-        if (body.version !== 4 || !body.user || !Array.isArray(body.errorItems)) {
-            return badRequest("Invalid import data format");
+        let json: unknown;
+        try {
+            json = await req.json();
+        } catch {
+            return badRequest("Invalid JSON");
         }
 
-        // 非管理员模式：验证导出数据属于当前用户
-        if (!importAll && body.user.email !== user.email) {
+        const parsed = backupSchema.safeParse(json);
+        if (!parsed.success) return badRequest("Invalid import data format", parsed.error.flatten());
+        const body: Backup = parsed.data;
+
+        if (body.version === 4 && (importAll || body.scope === "all")) {
+            return badRequest("Version 4 full backups cannot restore all users; create a version 5 export");
+        }
+        if (body.version === 5 && ((importAll && body.scope !== "all") || (!importAll && body.scope !== "user"))) {
+            return badRequest("Backup scope does not match the selected import scope");
+        }
+
+        const sourceUsers = body.version === 5 ? body.users : [body.user];
+        if (!importAll && (sourceUsers.length !== 1 || sourceUsers[0].email !== currentUser.email)) {
             return badRequest("Import data does not belong to current user");
         }
 
         const stats = {
+            usersCreated: 0,
             subjectsCreated: 0,
             tagsCreated: 0,
             errorItemsCreated: 0,
-            reviewSchedulesIgnored: body.reviewSchedules?.length || 0,
+            practiceSessionsCreated: 0,
+            practiceSessionItemsCreated: 0,
             practiceRecordsCreated: 0,
             tagsLinked: 0,
         };
 
-        // 使用事务确保数据一致性
-        await prisma.$transaction(async (tx) => {
-            // 1. 导入 subjects
+        await prisma.$transaction(async tx => {
+            const userIdMap = new Map<string, string>();
+            if (importAll && body.version === 5) {
+                for (const source of body.users) {
+                    const byId = await tx.user.findUnique({ where: { id: source.id } });
+                    if (byId && byId.email !== source.email) throw new InvalidBackupError(`Conflicting user ID: ${source.id}`);
+                    const existing = byId || await tx.user.findUnique({ where: { email: source.email } });
+                    const data = {
+                        email: source.email,
+                        password: source.password,
+                        name: source.name,
+                        educationStage: source.educationStage,
+                        enrollmentYear: source.enrollmentYear,
+                        role: source.role,
+                        isActive: source.isActive,
+                    };
+                    const restored = existing
+                        ? await tx.user.update({ where: { id: existing.id }, data })
+                        : await tx.user.create({ data: { id: source.id, ...data, createdAt: asDate(source.createdAt) } });
+                    if (!existing) stats.usersCreated++;
+                    userIdMap.set(source.id, restored.id);
+                }
+            } else {
+                userIdMap.set(sourceUsers[0].id, currentUser.id);
+            }
+
             const subjectIdMap = new Map<string, string>();
+            const subjectOwnerMap = new Map<string, string>();
             const subjectNameMap = new Map<string, string>();
-            for (const subject of (body.subjects || [])) {
-                subjectNameMap.set(subject.id, subject.name);
-                const targetUserId = importAll ? subject.userId : user.id;
-                const existing = await tx.subject.findFirst({
-                    where: { name: subject.name, userId: targetUserId },
+            for (const source of body.subjects) {
+                const targetUserId = requiredMapping(userIdMap, source.userId, "subject user");
+                const byId = await tx.subject.findUnique({ where: { id: source.id } });
+                if (byId) requireOwner(byId.userId, targetUserId, "subject");
+                const existing = byId || await tx.subject.findFirst({ where: { name: source.name, userId: targetUserId } });
+                const restored = existing || await tx.subject.create({
+                    data: { id: source.id, name: source.name, userId: targetUserId, createdAt: asDate(source.createdAt) },
                 });
-                if (existing) {
-                    subjectIdMap.set(subject.id, existing.id);
-                } else {
-                    const created = await tx.subject.create({
-                        data: {
-                            name: subject.name,
-                            userId: targetUserId,
-                        },
-                    });
-                    subjectIdMap.set(subject.id, created.id);
-                    stats.subjectsCreated++;
-                }
+                if (!existing) stats.subjectsCreated++;
+                subjectIdMap.set(source.id, restored.id);
+                subjectOwnerMap.set(source.id, targetUserId);
+                subjectNameMap.set(source.id, source.name);
             }
 
-            // 2. 导入 custom tags
             const tagIdMap = new Map<string, string>();
-            for (const tag of (body.customTags || [])) {
-                const targetUserId = importAll ? tag.userId : user.id;
-                const newParentId = tag.parentId ? tagIdMap.get(tag.parentId) : undefined;
-                const existing = await tx.knowledgeTag.findFirst({
-                    where: {
-                        name: tag.name,
-                        subject: tag.subject,
-                        userId: targetUserId,
-                        parentId: newParentId || null,
-                        isSystem: false,
-                    },
-                });
-                if (existing) {
-                    tagIdMap.set(tag.id, existing.id);
-                } else {
-                    const created = await tx.knowledgeTag.create({
-                        data: {
-                            name: tag.name,
-                            subject: tag.subject,
-                            isSystem: false,
-                            userId: targetUserId,
-                            parentId: newParentId,
-                            order: tag.order || 0,
-                            code: tag.code,
-                        },
-                    });
-                    tagIdMap.set(tag.id, created.id);
-                    stats.tagsCreated++;
+            const tagOwnerMap = new Map<string, string>();
+            for (const source of body.customTags) {
+                const targetUserId = requiredMapping(userIdMap, source.userId, "tag user");
+                const byId = await tx.knowledgeTag.findUnique({ where: { id: source.id } });
+                if (byId && (byId.userId !== targetUserId || byId.isSystem)) {
+                    throw new InvalidBackupError(`Conflicting tag ID: ${source.id}`);
                 }
-            }
-
-            // 3. 预加载所有需要的 tags（批量查询，避免 N+1）
-            const allTagNames = new Set<string>();
-            for (const item of body.errorItems) {
-                if (item.tags) {
-                    for (const tag of item.tags) {
-                        allTagNames.add(tag.name);
-                    }
-                }
-            }
-            // 批量查询：系统 tag + 所有用户的自定义 tag
-            const preloadedTags = await tx.knowledgeTag.findMany({
-                where: {
-                    name: { in: Array.from(allTagNames) },
-                    OR: [
-                        { isSystem: true },
-                        ...(importAll ? [] : [{ userId: user.id }]),
-                    ],
-                },
-            });
-            const tagNameMap = new Map<string, string>();
-            for (const tag of preloadedTags) {
-                const key = `${tag.subject}\0${tag.name}\0${tag.userId || ''}\0${tag.parentId || ''}`;
-                tagNameMap.set(key, tag.id);
-            }
-
-            // 4. 导入 error items
-            const errorItemIdMap = new Map<string, string>();
-            for (const item of body.errorItems) {
-                const targetUserId = importAll ? item.userId : user.id;
-                const newSubjectId = item.subjectId ? subjectIdMap.get(item.subjectId) : undefined;
-
-                // 去重：同一用户 + 同一科目 + 相同题目文本视为重复
-                if (item.questionText) {
-                    const existing = await tx.errorItem.findFirst({
-                        where: {
-                            userId: targetUserId,
-                            subjectId: newSubjectId || null,
-                            questionText: item.questionText,
-                        },
-                    });
-                    if (existing) {
-                        // 跳过重复，但保留练习记录所需的 ID 映射
-                        errorItemIdMap.set(item.id, existing.id);
-                        continue;
-                    }
-                }
-
-                const created = await tx.errorItem.create({
+                const existing = byId || (!source.parentId
+                    ? await tx.knowledgeTag.findFirst({
+                        where: { name: source.name, subject: source.subject, userId: targetUserId, parentId: null, isSystem: false },
+                    })
+                    : null);
+                const restored = existing || await tx.knowledgeTag.create({
                     data: {
+                        id: source.id,
+                        name: source.name,
+                        subject: source.subject,
+                        isSystem: false,
                         userId: targetUserId,
-                        subjectId: newSubjectId || undefined,
-                        originalImageUrl: item.originalImageUrl || '',
-                        ocrText: item.ocrText,
-                        questionText: item.questionText,
-                        answerText: item.answerText,
-                        analysis: item.analysis,
-                        wrongAnswerText: item.wrongAnswerText,
-                        mistakeAnalysis: item.mistakeAnalysis,
-                        mistakeStatus: item.mistakeStatus,
-                        source: item.source,
-                        errorType: item.errorType,
-                        userNotes: item.userNotes,
-                        masteryLevel: safeMasteryLevel(item.masteryLevel),
-                        gradeSemester: item.gradeSemester,
-                        paperLevel: item.paperLevel,
-                        createdAt: safeParseDate(item.createdAt),
+                        order: source.order,
+                        code: source.code,
+                        createdAt: asDate(source.createdAt),
                     },
                 });
-                errorItemIdMap.set(item.id, created.id);
-                stats.errorItemsCreated++;
+                if (!existing) stats.tagsCreated++;
+                tagIdMap.set(source.id, restored.id);
+                tagOwnerMap.set(source.id, targetUserId);
+            }
 
-                // 关联 tags
-                const importedTags = item.tags?.length
-                    ? item.tags
-                    : parseLegacyTagNames(item.knowledgePoints).map(name => ({
-                        id: '',
-                        name,
-                        subject: inferSubjectFromName(item.subjectId ? subjectNameMap.get(item.subjectId) || null : null) || 'other',
-                        parentId: null,
+            for (const source of body.customTags) {
+                if (!source.parentId) continue;
+                const tagId = requiredMapping(tagIdMap, source.id, "tag");
+                let parentId = tagIdMap.get(source.parentId);
+                if (parentId) {
+                    requireOwner(requiredMapping(tagOwnerMap, source.parentId, "parent tag owner"), requiredMapping(tagOwnerMap, source.id, "tag owner"), "tag hierarchy");
+                } else if (source.parent?.isSystem) {
+                    const systemParent = await tx.knowledgeTag.findFirst({
+                        where: { name: source.parent.name, subject: source.parent.subject, isSystem: true, userId: null },
+                    });
+                    parentId = systemParent?.id;
+                }
+                if (!parentId) {
+                    if (body.version === 4) continue;
+                    throw new InvalidBackupError(`Unknown parent tag: ${source.parentId}`);
+                }
+                await tx.knowledgeTag.update({ where: { id: tagId }, data: { parentId } });
+            }
+
+            const errorItemIdMap = new Map<string, string>();
+            const errorOwnerMap = new Map<string, string>();
+            for (const source of body.errorItems) {
+                const targetUserId = requiredMapping(userIdMap, source.userId, "error item user");
+                const subjectId = source.subjectId ? requiredMapping(subjectIdMap, source.subjectId, "subject") : null;
+                if (source.subjectId) requireOwner(requiredMapping(subjectOwnerMap, source.subjectId, "subject owner"), targetUserId, "error item subject");
+
+                const byId = await tx.errorItem.findUnique({ where: { id: source.id } });
+                if (byId) requireOwner(byId.userId, targetUserId, "error item");
+                const existing = byId || (source.questionText
+                    ? await tx.errorItem.findFirst({ where: { userId: targetUserId, subjectId, questionText: source.questionText } })
+                    : null);
+                const restored = existing || await tx.errorItem.create({
+                    data: {
+                        id: source.id,
                         userId: targetUserId,
+                        subjectId,
+                        originalImageUrl: source.originalImageUrl,
+                        ocrText: source.ocrText,
+                        questionText: source.questionText,
+                        answerText: source.answerText,
+                        analysis: source.analysis,
+                        wrongAnswerText: source.wrongAnswerText,
+                        mistakeAnalysis: source.mistakeAnalysis,
+                        mistakeStatus: source.mistakeStatus,
+                        geogebraCommands: source.geogebraCommands,
+                        source: source.source,
+                        errorType: source.errorType,
+                        userNotes: source.userNotes,
+                        masteryLevel: source.masteryLevel,
+                        gradeSemester: source.gradeSemester,
+                        paperLevel: source.paperLevel,
+                        createdAt: asDate(source.createdAt),
+                    },
+                });
+                if (!existing) stats.errorItemsCreated++;
+                errorItemIdMap.set(source.id, restored.id);
+                errorOwnerMap.set(source.id, targetUserId);
+
+                const importedTags = source.tags.length
+                    ? source.tags
+                    : parseLegacyTagNames(source.knowledgePoints).map(name => ({
+                        id: "",
+                        name,
+                        subject: inferSubjectFromName(source.subjectId ? subjectNameMap.get(source.subjectId) || null : null) || "other",
+                        parentId: null,
+                        userId: source.userId,
                         isSystem: false,
                     }));
-                if (importedTags.length > 0) {
-                    const tagConnections: { id: string }[] = [];
-                    for (const tag of importedTags) {
-                        if (tagIdMap.has(tag.id)) {
-                            tagConnections.push({ id: tagIdMap.get(tag.id)! });
-                        } else {
-                            const ownerId = tag.isSystem ? null : targetUserId;
-                            const parentId = tag.parentId ? tagIdMap.get(tag.parentId) || tag.parentId : null;
-                            const key = `${tag.subject}\0${tag.name}\0${ownerId || ''}\0${parentId || ''}`;
-                            let tagId = tagNameMap.get(key);
-                            if (!tagId) {
-                                const fallbackKey = `${tag.subject}\0${tag.name}\0${targetUserId}\0`;
-                                const existing = await tx.knowledgeTag.findFirst({
-                                    where: {
-                                        name: tag.name,
-                                        subject: tag.subject,
-                                        parentId: null,
-                                        userId: targetUserId,
-                                        isSystem: false,
-                                    },
-                                });
-                                const created = existing || await tx.knowledgeTag.create({
-                                    data: { name: tag.name, subject: tag.subject, userId: targetUserId, parentId: null, isSystem: false },
-                                });
-                                tagId = created.id;
-                                tagNameMap.set(fallbackKey, tagId);
-                                if (!existing) stats.tagsCreated++;
-                            }
-                            tagConnections.push({ id: tagId });
-                        }
-                    }
-
-                    if (tagConnections.length > 0) {
-                        await tx.errorItem.update({
-                            where: { id: created.id, userId: targetUserId },
-                            data: {
-                                tags: { connect: tagConnections },
-                            },
+                const tagConnections = new Set<string>();
+                for (const tag of importedTags) {
+                    let tagId = tagIdMap.get(tag.id);
+                    if (tagId) {
+                        requireOwner(requiredMapping(tagOwnerMap, tag.id, "tag owner"), targetUserId, "error item tag");
+                    } else if (tag.isSystem) {
+                        tagId = (await tx.knowledgeTag.findFirst({
+                            where: { name: tag.name, subject: tag.subject, isSystem: true, userId: null },
+                        }))?.id;
+                    } else {
+                        const existingTag = await tx.knowledgeTag.findFirst({
+                            where: { name: tag.name, subject: tag.subject, parentId: null, userId: targetUserId, isSystem: false },
                         });
-                        stats.tagsLinked += tagConnections.length;
+                        const restoredTag = existingTag || await tx.knowledgeTag.create({
+                            data: { name: tag.name, subject: tag.subject, userId: targetUserId, parentId: null, isSystem: false },
+                        });
+                        if (!existingTag) stats.tagsCreated++;
+                        tagId = restoredTag.id;
                     }
+                    if (!tagId) throw new InvalidBackupError(`Unknown error item tag: ${tag.id}`);
+                    tagConnections.add(tagId);
+                }
+                if (tagConnections.size) {
+                    await tx.errorItem.update({
+                        where: { id: restored.id },
+                        data: { tags: { connect: [...tagConnections].map(id => ({ id })) } },
+                    });
+                    stats.tagsLinked += tagConnections.size;
                 }
             }
 
-            // 5. 导入 practice records
-            for (const record of (body.practiceRecords || [])) {
-                const targetUserId = importAll ? record.userId : user.id;
+            const practiceSessionIdMap = new Map<string, string>();
+            const practiceSessionOwnerMap = new Map<string, string>();
+            if (body.version === 5) {
+                for (const source of body.practiceSessions) {
+                    const targetUserId = requiredMapping(userIdMap, source.userId, "practice session user");
+                    const byId = await tx.practiceSession.findUnique({ where: { id: source.id } });
+                    if (byId) requireOwner(byId.userId, targetUserId, "practice session");
+                    const restored = byId || await tx.practiceSession.create({
+                        data: {
+                            id: source.id,
+                            userId: targetUserId,
+                            mode: source.mode,
+                            questionSource: source.questionSource,
+                            language: source.language,
+                            startedAt: asDate(source.startedAt),
+                            endedAt: source.endedAt ? asDate(source.endedAt) : null,
+                        },
+                    });
+                    if (!byId) stats.practiceSessionsCreated++;
+                    practiceSessionIdMap.set(source.id, restored.id);
+                    practiceSessionOwnerMap.set(source.id, targetUserId);
+                }
+            }
+
+            const practiceSessionItemIdMap = new Map<string, string>();
+            const practiceSessionItemOwnerMap = new Map<string, string>();
+            if (body.version === 5) {
+                for (const source of body.practiceSessionItems) {
+                    const sessionId = requiredMapping(practiceSessionIdMap, source.sessionId, "practice session");
+                    const ownerId = requiredMapping(practiceSessionOwnerMap, source.sessionId, "practice session owner");
+                    const errorItemId = source.errorItemId ? requiredMapping(errorItemIdMap, source.errorItemId, "error item") : null;
+                    if (source.errorItemId) requireOwner(requiredMapping(errorOwnerMap, source.errorItemId, "error item owner"), ownerId, "practice session item");
+                    const byId = await tx.practiceSessionItem.findUnique({ where: { id: source.id } });
+                    if (byId && byId.sessionId !== sessionId) throw new InvalidBackupError(`Conflicting practice item ID: ${source.id}`);
+                    const restored = byId || await tx.practiceSessionItem.create({
+                        data: {
+                            id: source.id,
+                            sessionId,
+                            errorItemId,
+                            position: source.position,
+                            subjectName: source.subjectName,
+                            gradeSemester: source.gradeSemester,
+                            knowledgePoints: source.knowledgePoints,
+                            sourceQuestionText: source.sourceQuestionText,
+                            sourceAnswerText: source.sourceAnswerText,
+                            questionText: source.questionText,
+                            answerText: source.answerText,
+                            generationMode: source.generationMode,
+                        },
+                    });
+                    if (!byId) stats.practiceSessionItemsCreated++;
+                    practiceSessionItemIdMap.set(source.id, restored.id);
+                    practiceSessionItemOwnerMap.set(source.id, ownerId);
+                }
+            }
+
+            for (const source of body.practiceRecords) {
+                const targetUserId = requiredMapping(userIdMap, source.userId, "practice record user");
+                const errorItemId = source.errorItemId ? requiredMapping(errorItemIdMap, source.errorItemId, "error item") : null;
+                const sessionItemId = source.sessionItemId ? requiredMapping(practiceSessionItemIdMap, source.sessionItemId, "practice session item") : null;
+                if (source.errorItemId) requireOwner(requiredMapping(errorOwnerMap, source.errorItemId, "error item owner"), targetUserId, "practice record error item");
+                if (source.sessionItemId) requireOwner(requiredMapping(practiceSessionItemOwnerMap, source.sessionItemId, "practice session item owner"), targetUserId, "practice record session item");
+                const existing = await tx.practiceRecord.findUnique({ where: { id: source.id } });
+                if (existing) {
+                    requireOwner(existing.userId, targetUserId, "practice record");
+                    continue;
+                }
                 await tx.practiceRecord.create({
                     data: {
+                        id: source.id,
                         userId: targetUserId,
-                        errorItemId: record.errorItemId ? errorItemIdMap.get(record.errorItemId) : undefined,
-                        subject: record.subject,
-                        difficulty: record.difficulty,
-                        isCorrect: record.isCorrect,
-                        answerInput: record.answerInput,
-                        createdAt: safeParseDate(record.createdAt),
+                        sessionItemId,
+                        errorItemId,
+                        subject: source.subject,
+                        difficulty: source.difficulty,
+                        isCorrect: source.isCorrect,
+                        answerInput: source.answerInput,
+                        createdAt: asDate(source.createdAt),
                     },
                 });
                 stats.practiceRecordsCreated++;
             }
-        }, {
-            timeout: 60000,
-        });
+        }, { timeout: 60000 });
 
-        logger.info({
-            userId: user.id,
-            scope: importAll ? 'all' : 'user',
-            ...stats,
-        }, 'Data import completed');
-
-        return NextResponse.json({
-            success: true,
-            stats,
-        });
+        logger.info({ userId: currentUser.id, scope: importAll ? "all" : "user", ...stats }, "Data import completed");
+        return NextResponse.json({ success: true, stats });
     } catch (error) {
-        logger.error({ error, userId: user.id }, 'Import failed');
+        if (error instanceof InvalidBackupError) return badRequest(error.message);
+        logger.error({ error, userId: currentUser.id }, "Import failed");
         return internalError("Failed to import data");
     }
 }

@@ -108,15 +108,12 @@ test.describe('Authentication Flow', () => {
         // 使用更长的超时时间等待用户行出现
         await expect(userRow).toBeVisible({ timeout: 10000 });
 
-        // Setup dialog handler for delete confirmation
-        page.once('dialog', async dialog => {
-            console.log(`Delete User Dialog: ${dialog.message()}`);
-            await dialog.accept();
-        });
-
         // Click Delete button in that row (Trash icon)
         // The button has title "Delete" or "删除"
         await userRow.getByRole('button', { name: /Delete|删除/ }).click();
+        const deleteDialog = page.getByRole('dialog').last();
+        await expect(deleteDialog).toBeVisible();
+        await deleteDialog.getByRole('button', { name: /Confirm|确认/ }).click();
 
         // Verify user is gone
         await expect(page.locator('tr').filter({ hasText: user.email })).not.toBeVisible({ timeout: 5000 });

@@ -44,9 +44,9 @@ fi
 
 # Run migrations to ensure DB schema is available and up to date.
 echo "[Entrypoint] Running database migrations to sync schema..."
-cd /app && $PRISMA_BIN migrate deploy --schema=./prisma/schema.prisma && {
-    echo "[Entrypoint] Migrations completed successfully."
-} || echo "[Entrypoint] Migration failed or no pending migrations."
+cd /app
+$PRISMA_BIN migrate deploy --schema=./prisma/schema.prisma
+echo "[Entrypoint] Migrations completed successfully."
 
 # Always run seed after migrations to ensure admin user has correct role/isActive
 # (migration may have reset role to default 'user' for existing installs)

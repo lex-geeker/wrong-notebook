@@ -86,6 +86,14 @@ describe("GET /api/learning-overview", () => {
     it("isolates overview data by the authenticated user", async () => {
         await GET();
         expect(mocks.findItems).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: "user-1" }) }));
-        expect(mocks.findActiveSession).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: "user-1" }) }));
+        expect(mocks.findActiveSession).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                userId: "user-1",
+                startedAt: {
+                    gte: new Date("2026-09-01T16:00:00.000Z"),
+                    lt: new Date("2026-09-02T16:00:00.000Z"),
+                },
+            }),
+        }));
     });
 });

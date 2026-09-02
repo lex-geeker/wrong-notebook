@@ -9,7 +9,7 @@ export { MAX_OPENAI_INSTANCES } from '@/types/api';
 
 const logger = createLogger('config');
 
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'config', 'app-config.json');
+const CONFIG_FILE_PATH = process.env.APP_CONFIG_PATH || path.join(process.cwd(), 'config', 'app-config.json');
 
 // 旧版 OpenAI 配置格式（用于迁移检测）
 interface LegacyOpenAIConfig {
@@ -81,9 +81,9 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 export function getAppConfig(): AppConfig {
-    if (fs.existsSync(CONFIG_FILE_PATH)) {
+    if (fs.existsSync(/* turbopackIgnore: true */ CONFIG_FILE_PATH)) {
         try {
-            const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
+            const fileContent = fs.readFileSync(/* turbopackIgnore: true */ CONFIG_FILE_PATH, 'utf-8');
             const userConfig = JSON.parse(fileContent);
 
             // 检测并迁移旧版 OpenAI 配置
@@ -96,7 +96,7 @@ export function getAppConfig(): AppConfig {
                     ...userConfig,
                     openai: openaiConfig,
                 };
-                fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(migratedConfig, null, 2));
+                fs.writeFileSync(/* turbopackIgnore: true */ CONFIG_FILE_PATH, JSON.stringify(migratedConfig, null, 2));
                 logger.info('Legacy OpenAI config migrated successfully');
             }
 
@@ -137,7 +137,7 @@ export function updateAppConfig(newConfig: Partial<AppConfig>) {
     };
 
     try {
-        fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(updatedConfig, null, 2));
+        fs.writeFileSync(/* turbopackIgnore: true */ CONFIG_FILE_PATH, JSON.stringify(updatedConfig, null, 2));
         return updatedConfig;
     } catch (error) {
         logger.error({ error }, 'Failed to write config file');

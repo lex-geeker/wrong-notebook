@@ -116,14 +116,11 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
         // Wait for Detail Page
         await expect(page.getByRole('heading', { level: 1, name: /详情|Detail/ })).toBeVisible({ timeout: 5000 });
 
-        // Setup dialog handler for item deletion
-        page.once('dialog', async dialog => {
-            console.log(`Item Delete Dialog: ${dialog.message()}`);
-            await dialog.accept();
-        });
-
         // Click Delete Button
         await page.getByRole('button', { name: /删除|Delete/ }).click();
+        const deleteDialog = page.getByRole('dialog');
+        await expect(deleteDialog).toBeVisible();
+        await deleteDialog.getByRole('button', { name: /确认|Confirm/ }).click();
 
         // Wait to be redirected back to notebook page
         await page.waitForURL(/\/notebooks\/.+/, { timeout: 5000 });
@@ -137,12 +134,6 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
     // 13. Delete the Notebook
     await page.goto('/notebooks');
 
-    // Setup dialog handler for notebook deletion
-    page.once('dialog', async dialog => {
-        console.log(`Notebook Delete Dialog: ${dialog.message()}`);
-        await dialog.accept();
-    });
-
     const notebookCard = page.locator('.group').filter({ hasText: notebookName }).first();
 
     // Hover to reveal button
@@ -150,8 +141,12 @@ test('Upload image, correct, save, and verify in notebook', async ({ page }) => 
 
     // Click the delete button (Trash icon)
     await notebookCard.getByRole('button').last().click();
+    const deleteDialog = page.getByRole('dialog');
+    await expect(deleteDialog).toBeVisible();
+    await deleteDialog.getByRole('button', { name: /确认|Confirm/ }).click();
+    await expect(deleteDialog).not.toBeVisible();
 
     // 14. Verify Notebook Deleted
-    await expect(page.getByText(notebookName, { exact: true })).not.toBeVisible({ timeout: 5000 });
+    await expect(notebookCard).not.toBeVisible({ timeout: 5000 });
 
 });

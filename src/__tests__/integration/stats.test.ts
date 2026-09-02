@@ -67,19 +67,6 @@ describe('/api/stats', () => {
                 { subject: '英语', _count: { id: 5 } },
             ]);
 
-            // Mock activity stats
-            mocks.mockPrismaPracticeRecord.findMany.mockResolvedValue([
-                { createdAt: new Date(), isCorrect: true, difficulty: 'medium' },
-                { createdAt: new Date(), isCorrect: false, difficulty: 'hard' },
-            ]);
-
-            // Mock difficulty stats
-            mocks.mockPrismaPracticeRecord.groupBy.mockResolvedValueOnce([
-                { difficulty: 'easy', _count: { id: 3 } },
-                { difficulty: 'medium', _count: { id: 7 } },
-                { difficulty: 'hard', _count: { id: 5 } },
-            ]);
-
             // Mock total and correct counts
             mocks.mockPrismaPracticeRecord.count
                 .mockResolvedValueOnce(15)
@@ -91,8 +78,6 @@ describe('/api/stats', () => {
 
             expect(response.status).toBe(200);
             expect(data.subjectStats).toBeDefined();
-            expect(data.activityStats).toBeDefined();
-            expect(data.difficultyStats).toBeDefined();
             expect(data.overallStats).toBeDefined();
         });
 
@@ -100,8 +85,6 @@ describe('/api/stats', () => {
             mocks.mockPrismaPracticeRecord.groupBy.mockResolvedValueOnce([
                 { subject: '数学', _count: { id: 20 } },
             ]);
-            mocks.mockPrismaPracticeRecord.findMany.mockResolvedValue([]);
-            mocks.mockPrismaPracticeRecord.groupBy.mockResolvedValueOnce([]);
             mocks.mockPrismaPracticeRecord.count.mockResolvedValue(0);
 
             const request = new Request('http://localhost/api/stats/practice');
@@ -115,7 +98,6 @@ describe('/api/stats', () => {
 
         it('应该返回正确的正确率', async () => {
             mocks.mockPrismaPracticeRecord.groupBy.mockResolvedValue([]);
-            mocks.mockPrismaPracticeRecord.findMany.mockResolvedValue([]);
             mocks.mockPrismaPracticeRecord.count
                 .mockResolvedValueOnce(100) // total
                 .mockResolvedValueOnce(75);  // correct
@@ -132,7 +114,6 @@ describe('/api/stats', () => {
 
         it('应该处理零记录情况', async () => {
             mocks.mockPrismaPracticeRecord.groupBy.mockResolvedValue([]);
-            mocks.mockPrismaPracticeRecord.findMany.mockResolvedValue([]);
             mocks.mockPrismaPracticeRecord.count.mockResolvedValue(0);
 
             const request = new Request('http://localhost/api/stats/practice');

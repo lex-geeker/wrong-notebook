@@ -41,11 +41,10 @@ export async function GET() {
             const defaultSubjects = ["数学", "英语"];
 
             await Promise.all(defaultSubjects.map(name =>
-                prisma.subject.create({
-                    data: {
-                        name,
-                        userId,
-                    }
+                prisma.subject.upsert({
+                    where: { name_userId: { name, userId } },
+                    update: {},
+                    create: { name, userId },
                 })
             ));
 

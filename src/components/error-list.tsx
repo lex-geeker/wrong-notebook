@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "@/lib/constants/pagination";
 import { getMistakeStatusLabel } from "@/lib/mistake-status";
 import { loadAllPages } from "@/lib/print-preview";
 import { deleteIdsInBatches, type BatchDeleteResponse } from "@/lib/batch-delete";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface ErrorListProps {
     subjectId: string;
@@ -40,7 +41,9 @@ type KnowledgeFilterChange = {
 
 export function ErrorList({ subjectId }: ErrorListProps) {
     const [items, setItems] = useState<ErrorItemSummary[]>([]);
-    const [, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState("");
+    const [actionFeedback, setActionFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
     const [masteryFilter, setMasteryFilter] = useState<"all" | "new" | "reviewing" | "mastered">("all");
@@ -62,8 +65,9 @@ export function ErrorList({ subjectId }: ErrorListProps) {
     const { t, language } = useLanguage();
     const router = useRouter();
     const selectionRequestRef = useRef(0);
+    const fetchRequestRef = useRef(0);
 
-    const buildFilterParams = (query: string) => {
+    const buildFilterParams = useCallback((query: string) => {
         const params = new URLSearchParams();
         if (subjectId) params.append("subjectId", subjectId);
         if (query) params.append("query", query);
@@ -75,7 +79,33 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         if (gradeFilter) params.append("gradeSemester", gradeFilter);
         if (paperLevelFilter !== "all") params.append("paperLevel", paperLevelFilter);
         return params;
-    };
+    }, [gradeFilter, masteryFilter, paperLevelFilter, selectedTag, subjectId, timeFilter]);
+
+    const fetchItems = useCallback(async (signal?: AbortSignal) => {
+        const requestId = ++fetchRequestRef.current;
+        setLoading(true);
+        setLoadError("");
+        try {
+            const params = buildFilterParams(debouncedSearch);
+            params.append("page", page.toString());
+            params.append("pageSize", pageSize.toString());
+
+            const response = await apiClient.get<PaginatedResponse<ErrorItemSummary>>(`/api/error-items/list?${params.toString()}`, { signal });
+            if (fetchRequestRef.current === requestId) {
+                setItems(response.items);
+                setTotal(response.total);
+                setTotalPages(response.totalPages);
+            }
+        } catch (error) {
+            if (signal?.aborted) return;
+            console.error(error);
+            if (fetchRequestRef.current === requestId) {
+                setLoadError(language === "zh" ? "加载错题失败，请重试。" : "Failed to load error items. Please try again.");
+            }
+        } finally {
+            if (fetchRequestRef.current === requestId) setLoading(false);
+        }
+    }, [buildFilterParams, debouncedSearch, language, page, pageSize]);
 
     const handleExportPrint = () => {
         const params = buildFilterParams(search);
@@ -137,6 +167,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         const params = buildFilterParams(debouncedSearch);
         params.set("pageSize", String(MAX_PAGE_SIZE));
         setIsSelectingAll(true);
+        setActionFeedback(null);
 
         try {
             const allItems = await loadAllPages(async (nextPage) => {
@@ -149,7 +180,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         } catch (error) {
             if (selectionRequestRef.current === requestId) {
                 console.error(error);
-                alert(t.notebook?.selectAllFailed || "Failed to select all items");
+                setActionFeedback({ role: "alert", message: t.notebook?.selectAllFailed || "Failed to select all items" });
             }
         } finally {
             if (selectionRequestRef.current === requestId) setIsSelectingAll(false);
@@ -159,11 +190,8 @@ export function ErrorList({ subjectId }: ErrorListProps) {
     const handleBatchDelete = async () => {
         if (selectedIds.size === 0) return;
 
-        const confirmMsg = (t.notebook?.confirmBatchDelete || "Delete {count} items?")
-            .replace("{count}", selectedIds.size.toString());
-        if (!confirm(confirmMsg)) return;
-
         setIsDeleting(true);
+        setActionFeedback(null);
         try {
             const ids = Array.from(selectedIds);
             const result = await deleteIdsInBatches(ids, (batch) =>
@@ -174,18 +202,21 @@ export function ErrorList({ subjectId }: ErrorListProps) {
 
             if (result.error || result.remainingIds.length > 0) {
                 if (result.error) console.error(result.error);
-                alert((t.notebook?.batchDeletePartial || "Deleted {deleted}; {remaining} remain selected")
-                    .replace("{deleted}", result.deletedCount.toString())
-                    .replace("{remaining}", result.remainingIds.length.toString()));
+                setActionFeedback({
+                    role: "alert",
+                    message: (t.notebook?.batchDeletePartial || "Deleted {deleted}; {remaining} remain selected")
+                        .replace("{deleted}", result.deletedCount.toString())
+                        .replace("{remaining}", result.remainingIds.length.toString()),
+                });
                 return;
             }
 
-            alert(t.notebook?.batchDeleteSuccess || "Deleted successfully");
+            setActionFeedback({ role: "status", message: t.notebook?.batchDeleteSuccess || "Deleted successfully" });
             setIsSelectMode(false);
             setSelectedIds(new Set());
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.deleteFailed || "Delete failed");
+            setActionFeedback({ role: "alert", message: t.common?.messages?.deleteFailed || "Delete failed" });
         } finally {
             setIsDeleting(false);
         }
@@ -229,30 +260,10 @@ export function ErrorList({ subjectId }: ErrorListProps) {
         const controller = new AbortController();
         fetchItems(controller.signal);
         return () => controller.abort();
-    }, [page, debouncedSearch, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, paperLevelFilter]);
-
-    const fetchItems = async (signal?: AbortSignal) => {
-        setLoading(true);
-        try {
-            const params = buildFilterParams(debouncedSearch);
-            // 分页参数
-            params.append("page", page.toString());
-            params.append("pageSize", pageSize.toString());
-
-            const response = await apiClient.get<PaginatedResponse<ErrorItemSummary>>(`/api/error-items/list?${params.toString()}`, { signal });
-            setItems(response.items);
-            setTotal(response.total);
-            setTotalPages(response.totalPages);
-        } catch (error) {
-            if (signal?.aborted) return;
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [page, debouncedSearch, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, paperLevelFilter, fetchItems]);
 
     return (
-        <div className={`space-y-6 ${isSelectMode ? "pb-40 sm:pb-24" : ""}`}>
+        <div aria-busy={loading} className={`space-y-6 ${isSelectMode ? "pb-40 sm:pb-24" : ""}`}>
             <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative w-full sm:flex-1">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -261,11 +272,12 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                         className="pl-9"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
+                        disabled={loading}
                     />
                 </div>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="outline">
+                        <Button variant="outline" disabled={loading}>
                             <Filter className="mr-2 h-4 w-4" />
                             {t.notebook.filter}
                             <ChevronDown className="ml-2 h-4 w-4" />
@@ -300,14 +312,14 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
-                <Button variant="outline" onClick={handleExportPrint}>
+                <Button variant="outline" onClick={handleExportPrint} disabled={loading}>
                     <Printer className="mr-2 h-4 w-4" />
                     {t.notebook?.exportPrint || "导出打印"}
                 </Button>
                 <Button
                     variant={isSelectMode ? "secondary" : "outline"}
                     onClick={toggleSelectMode}
-                    disabled={isSelectingAll || isDeleting}
+                    disabled={loading || isSelectingAll || isDeleting}
                 >
                     <ListChecks className="mr-2 h-4 w-4" />
                     {isSelectMode ? (t.notebook?.cancelSelect || "取消") : (t.notebook?.selectMode || "多选")}
@@ -368,7 +380,30 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                 </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {loadError && (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+                    <span>{loadError}</span>
+                    <Button variant="outline" size="sm" onClick={() => void fetchItems()}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {language === "zh" ? "重试" : "Retry"}
+                    </Button>
+                </div>
+            )}
+
+            {actionFeedback && (
+                <p role={actionFeedback.role} className={`rounded-md border p-3 text-sm ${actionFeedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
+                    {actionFeedback.message}
+                </p>
+            )}
+
+            {loading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    {t.common.loading}
+                </div>
+            )}
+
+            <div className={`grid gap-4 transition-opacity md:grid-cols-2 lg:grid-cols-3 ${loading ? "pointer-events-none opacity-50" : ""}`}>
                 {filteredItems.map((item) => {
                     const tags = item.tags.map((tag) => tag.name);
                     const mastered = item.masteryLevel === 2;
@@ -491,7 +526,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                                 variant="outline"
                                 size="sm"
                                 onClick={handleSelectAll}
-                                disabled={isSelectingAll || isDeleting || total === 0 || selectedIds.size === total}
+                                disabled={loading || isSelectingAll || isDeleting || total === 0 || selectedIds.size === total}
                             >
                                 {isSelectingAll ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCheck className="mr-2 h-4 w-4" />}
                                 {isSelectingAll
@@ -502,7 +537,7 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => setSelectedIds(new Set())}
-                                disabled={selectedIds.size === 0 || isSelectingAll || isDeleting}
+                                disabled={loading || selectedIds.size === 0 || isSelectingAll || isDeleting}
                             >
                                 <ListX className="mr-2 h-4 w-4" />
                                 {t.notebook?.selectNone || "Select none"}
@@ -511,20 +546,25 @@ export function ErrorList({ subjectId }: ErrorListProps) {
                                 variant="outline"
                                 onClick={toggleSelectMode}
                                 size="sm"
-                                disabled={isSelectingAll || isDeleting}
+                                disabled={loading || isSelectingAll || isDeleting}
                             >
                                 <X className="mr-2 h-4 w-4" />
                                 {t.notebook?.cancelSelect || "取消"}
                             </Button>
-                            <Button
-                                variant="destructive"
-                                onClick={handleBatchDelete}
-                                size="sm"
-                                disabled={selectedIds.size === 0 || isSelectingAll || isDeleting}
+                            <ConfirmDialog
+                                title={t.notebook?.deleteSelected || "删除选中"}
+                                description={(t.notebook?.confirmBatchDelete || "Delete {count} items?").replace("{count}", selectedIds.size.toString())}
+                                onConfirm={handleBatchDelete}
                             >
-                                {isDeleting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                                {isDeleting ? t.common.loading : (t.notebook?.deleteSelected || "删除选中")}
-                            </Button>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    disabled={loading || selectedIds.size === 0 || isSelectingAll || isDeleting}
+                                >
+                                    {isDeleting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                                    {isDeleting ? t.common.loading : (t.notebook?.deleteSelected || "删除选中")}
+                                </Button>
+                            </ConfirmDialog>
                         </div>
                     </div>
                 </div>

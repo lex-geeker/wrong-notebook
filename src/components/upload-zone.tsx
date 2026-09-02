@@ -31,6 +31,7 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
     const { t } = useLanguage();
     const [isScreenshotting, setIsScreenshotting] = useState(false);
     const [isClient, setIsClient] = useState(false);
+    const [screenshotError, setScreenshotError] = useState("");
     // 确保只在客户端渲染屏幕截图功能
     useEffect(() => {
         setIsClient(true);
@@ -65,11 +66,13 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
     // 屏幕截图功能
     const handleScreenshot = async () => {
         if (!isScreenshotSupported()) {
-            alert(t.upload.screenshotNotSupported);
+            setScreenshotError(t.upload.screenshotNotSupported);
             return;
         }
 
         setIsScreenshotting(true);
+        setScreenshotError("");
+        let stream: MediaStream | undefined;
 
         try {
             // 创建 CaptureController 来控制焦点行为
@@ -90,7 +93,7 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
                 displayMediaOptions.controller = controller;
             }
 
-            const stream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+            stream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
 
             // 获取视频轨道并检查捕获类型
             const [videoTrack] = stream.getVideoTracks();
@@ -145,32 +148,23 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
             // 绘制视频帧
             ctx.drawImage(video, 0, 0);
 
-            // 停止屏幕共享
-            stream.getTracks().forEach(track => track.stop());
-
             // 转换为blob并创建文件
-            canvas.toBlob((blob) => {
-                if (blob) {
-                    const file = new File([blob], `screenshot-${Date.now()}.png`, {
-                        type: 'image/png'
-                    });
-                    onImageSelect(file);
-                    console.log('✅ 截图完成，当前页面未跳转');
-                } else {
-                    alert('截图转换失败');
-                }
-            }, 'image/png', 1.0);
+            const blob = await new Promise<Blob>((resolve, reject) => {
+                canvas.toBlob(result => result ? resolve(result) : reject(new Error('截图转换失败')), 'image/png', 1.0);
+            });
+            onImageSelect(new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' }));
 
         } catch (error) {
             console.error('Screenshot failed:', error);
             if (error instanceof Error) {
                 if (error.name === 'NotAllowedError') {
-                    alert(t.upload.screenshotPermissionDenied);
+                    setScreenshotError(t.upload.screenshotPermissionDenied);
                 } else {
-                    alert(`${t.upload.screenshotFailed}: ${error.message}`);
+                    setScreenshotError(`${t.upload.screenshotFailed}: ${error.message}`);
                 }
             }
         } finally {
+            stream?.getTracks().forEach(track => track.stop());
             setIsScreenshotting(false);
         }
     };
@@ -224,6 +218,7 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
                     </p>
                 </div>
             )}
+            {screenshotError && <p role="alert" className="text-center text-sm text-destructive">{screenshotError}</p>}
         </div>
     );
 }

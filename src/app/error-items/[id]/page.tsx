@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, House, ImageIcon } from "lucide-react";
+import { ArrowLeft, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, EyeOff, House, ImageIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -14,11 +14,12 @@ import { TagInput } from "@/components/tag-input";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiClient, ApiError } from "@/lib/api-client";
-import { UserProfile, Notebook } from "@/types/api";
+import { UserProfile } from "@/types/api";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { getMistakeStatusLabel, normalizeMistakeStatusForSave } from "@/lib/mistake-status";
 import { NotebookSelector } from "@/components/notebook-selector";
 import { GeogebraDemo } from "@/components/geogebra-demo";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
     ERROR_SOURCES,
     ERROR_SOURCE_LABELS,
@@ -45,8 +46,6 @@ interface ErrorItemDetail {
     tags: KnowledgeTag[]; // 新的标签关联
     masteryLevel: number;
     originalImageUrl: string;
-    referenceImageUrl?: string | null;
-    wrongAnswerImageUrl?: string | null;
     userNotes: string | null;
     subjectId?: string | null;
     subject?: {
@@ -77,16 +76,24 @@ export default function ErrorDetailPage() {
     const [notebookInput, setNotebookInput] = useState<string | null>(null);
     const [sourceInput, setSourceInput] = useState<ErrorSource>("homework");
     const [errorTypeInput, setErrorTypeInput] = useState<ErrorType | undefined>();
+    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     const [educationStage, setEducationStage] = useState<string | undefined>(undefined);
 
     const [isAnalyzingGeogebra, setIsAnalyzingGeogebra] = useState(false);
     const [geogebraError, setGeogebraError] = useState<string | null>(null);
     const [showQuestionImage, setShowQuestionImage] = useState(false);
-    const [showReferenceImage, setShowReferenceImage] = useState(false);
-    const [showOwnImage, setShowOwnImage] = useState(false);
-    const [showFloatingQuestion, setShowFloatingQuestion] = useState(false);
-    const questionRef = useRef<HTMLDivElement>(null);
+    const fetchItem = useCallback(async (id: string) => {
+        try {
+            const data = await apiClient.get<ErrorItemDetail>(`/api/error-items/${id}`);
+            setItem(data);
+        } catch (error) {
+            console.error(error);
+            setFeedback({ role: "alert", message: t.common?.messages?.loadFailed || 'Failed to load item' });
+        } finally {
+            setLoading(false);
+        }
+    }, [t.common?.messages?.loadFailed]);
 
     useEffect(() => {
         // Fetch user info for education stage
@@ -101,20 +108,7 @@ export default function ErrorDetailPage() {
         if (params.id) {
             fetchItem(params.id as string);
         }
-    }, [params.id]);
-
-    const fetchItem = async (id: string) => {
-        try {
-            const data = await apiClient.get<ErrorItemDetail>(`/api/error-items/${id}`);
-            setItem(data);
-        } catch (error) {
-            console.error(error);
-            alert(t.common?.messages?.loadFailed || 'Failed to load item');
-            router.push("/notebooks");
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [fetchItem, params.id]);
 
     const handleAnalyzeGeogebra = async () => {
         if (!item) return;
@@ -157,19 +151,15 @@ export default function ErrorDetailPage() {
             setItem({ ...item, masteryLevel: 0 });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.updateFailed || 'Update failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.updateFailed || 'Update failed' });
         }
     };
 
     const deleteItem = async () => {
         if (!item) return;
 
-        const confirmMessage = t.common?.messages?.confirmDelete || 'Are you sure you want to delete this error item?';
-        if (!confirm(confirmMessage)) return;
-
         try {
             await apiClient.delete(`/api/error-items/${item.id}`);
-            alert(t.common?.messages?.deleteSuccess || 'Deleted successfully');
             if (item.subjectId) {
                 router.push(`/notebooks/${item.subjectId}`);
             } else {
@@ -177,7 +167,7 @@ export default function ErrorDetailPage() {
             }
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.deleteFailed || 'Delete failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.deleteFailed || 'Delete failed' });
         }
     };
 
@@ -207,10 +197,10 @@ export default function ErrorDetailPage() {
 
             setIsEditingTags(false);
             await fetchItem(params.id as string);
-            alert(t.common?.messages?.tagUpdateSuccess || 'Tags updated successfully!');
+            setFeedback({ role: "status", message: t.common?.messages?.tagUpdateSuccess || 'Tags updated successfully!' });
         } catch (error) {
             console.error("[Frontend] Error updating:", error);
-            alert(t.common?.messages?.updateFailed || 'Update failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.updateFailed || 'Update failed' });
         }
     };
 
@@ -241,11 +231,11 @@ export default function ErrorDetailPage() {
             });
 
             setIsEditingMetadata(false);
-            fetchItem(params.id as string);
-            alert(t.common?.messages?.metaUpdateSuccess || 'Metadata updated successfully!');
+            await fetchItem(params.id as string);
+            setFeedback({ role: "status", message: t.common?.messages?.metaUpdateSuccess || 'Metadata updated successfully!' });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.updateFailed || 'Update failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.updateFailed || 'Update failed' });
         }
     };
 
@@ -283,10 +273,10 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item?.id}`, { questionText: questionInput });
             setIsEditingQuestion(false);
             if (item) setItem({ ...item, questionText: questionInput });
-            alert(t.common?.messages?.saveSuccess || 'Saved successfully');
+            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
         }
     };
 
@@ -308,10 +298,10 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item?.id}`, { answerText: answerInput });
             setIsEditingAnswer(false);
             if (item) setItem({ ...item, answerText: answerInput });
-            alert(t.common?.messages?.saveSuccess || 'Saved successfully');
+            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
         }
     };
 
@@ -333,10 +323,10 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item?.id}`, { analysis: analysisInput });
             setIsEditingAnalysis(false);
             if (item) setItem({ ...item, analysis: analysisInput });
-            alert(t.common?.messages?.saveSuccess || 'Saved successfully');
+            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
         }
     };
 
@@ -375,10 +365,10 @@ export default function ErrorDetailPage() {
                     mistakeStatus: normalizedStatus,
                 });
             }
-            alert(t.common?.messages?.saveSuccess || 'Saved successfully');
+            setFeedback({ role: "status", message: t.common?.messages?.saveSuccess || 'Saved successfully' });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
         }
     };
 
@@ -396,30 +386,20 @@ export default function ErrorDetailPage() {
             await apiClient.put(`/api/error-items/${item.id}`, { userNotes: notesInput });
             setItem({ ...item, userNotes: notesInput });
             setIsEditingNotes(false);
-            alert(t.common?.messages?.noteSaveSuccess || 'Notes saved successfully');
+            setFeedback({ role: "status", message: t.common?.messages?.noteSaveSuccess || 'Notes saved successfully' });
         } catch (error) {
             console.error(error);
-            alert(t.common?.messages?.saveFailed || 'Save failed');
+            setFeedback({ role: "alert", message: t.common?.messages?.saveFailed || 'Save failed' });
         }
     };
 
-    useEffect(() => {
-        const handleScroll = () => {
-            if (!questionRef.current) return;
-            const rect = questionRef.current.getBoundingClientRect();
-            if (rect.bottom < -50) {
-                setShowFloatingQuestion(true);
-            } else {
-                setShowFloatingQuestion(false);
-            }
-        };
-        window.addEventListener("scroll", handleScroll, { passive: true });
-        handleScroll();
-        return () => window.removeEventListener("scroll", handleScroll);
-    }, []);
-
     if (loading) return <div className="p-8 text-center">{t.common.loading}</div>;
-    if (!item) return <div className="p-8 text-center">{t.detail.notFound || "Item not found"}</div>;
+    if (!item) return (
+        <div className="p-8 text-center space-y-3">
+            {feedback && <p role={feedback.role} className="text-sm text-destructive">{feedback.message}</p>}
+            <p>{t.detail.notFound || "Item not found"}</p>
+        </div>
+    );
 
     const tags = item.tags.map(t => t.name);
 
@@ -455,15 +435,16 @@ export default function ErrorDetailPage() {
                                 {t.detail.restartReview}
                             </Button>
                         )}
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={deleteItem}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        <ConfirmDialog
+                            title={t.detail.delete || "Delete"}
+                            description={t.common?.messages?.confirmDelete || "Are you sure you want to delete this error item?"}
+                            onConfirm={deleteItem}
                         >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            {t.detail.delete || "Delete"}
-                        </Button>
+                            <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                {t.detail.delete || "Delete"}
+                            </Button>
+                        </ConfirmDialog>
                     </div>
                     <Link href="/" className="absolute right-0 top-0">
                         <Button variant="ghost" size="icon" title={t.practice.batch.home} aria-label={t.practice.batch.home}>
@@ -471,6 +452,12 @@ export default function ErrorDetailPage() {
                         </Button>
                     </Link>
                 </div>
+
+                {feedback && (
+                    <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
+                        {feedback.message}
+                    </p>
+                )}
 
                 <Card>
                     <CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.question}</CardTitle>{!isEditingQuestion && <Button variant="ghost" size="sm" onClick={startEditingQuestion}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
@@ -520,7 +507,12 @@ export default function ErrorDetailPage() {
                                 <Button variant="outline" size="sm" onClick={() => setShowQuestionImage(!showQuestionImage)} className="flex items-center gap-2">
                                     {showQuestionImage ? <><EyeOff className="h-4 w-4" />隐藏原题图片</> : <><ImageIcon className="h-4 w-4" />查看原题图片</>}
                                 </Button>
-                                {showQuestionImage && <div className="mt-4"><img src={item.originalImageUrl} alt={t.detail.originalProblem || "Original Problem"} className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setIsImageViewerOpen(true)} /><p className="text-xs text-muted-foreground mt-1 text-center">{t.detail?.clickToEnlarge || "Click to enlarge"}</p></div>}
+                                {showQuestionImage && <div className="mt-4">
+                                    {/* User uploads may be data URLs and are shown in a full-size viewer. */}
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={item.originalImageUrl} alt={t.detail.originalProblem || "Original Problem"} className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setIsImageViewerOpen(true)} />
+                                    <p className="text-xs text-muted-foreground mt-1 text-center">{t.detail?.clickToEnlarge || "Click to enlarge"}</p>
+                                </div>}
                             </div>
                         )}
                     </CardContent>
@@ -533,7 +525,6 @@ export default function ErrorDetailPage() {
                             {isEditingAnswer ? (
                                 <div className="space-y-3"><Textarea value={answerInput} onChange={e => setAnswerInput(e.target.value)} placeholder="Enter answer..." rows={5} className="w-full font-mono text-sm" /><div className="flex gap-2"><Button size="sm" onClick={saveAnswerHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingAnswer}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div></div>
                             ) : <MarkdownRenderer content={item.answerText} className="font-semibold" />}
-                            {item.referenceImageUrl && <div className="pt-3"><Button variant="ghost" size="sm" onClick={() => setShowReferenceImage(!showReferenceImage)} className="flex items-center gap-2 text-muted-foreground">{showReferenceImage ? <><EyeOff className="h-4 w-4" />隐藏图片</> : <><ImageIcon className="h-4 w-4" />查看图片</>}</Button>{showReferenceImage && <div className="mt-4"><img src={item.referenceImageUrl} alt="参考图片" className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setIsImageViewerOpen(true)} /><p className="text-xs text-muted-foreground mt-1 text-center">{t.detail?.clickToEnlarge || "Click to enlarge"}</p></div>}</div>}
                         </CardContent>
                     </Card>
                     <Card>
@@ -549,7 +540,6 @@ export default function ErrorDetailPage() {
                                 <div className="space-y-4">
                                     <Badge variant={item.mistakeStatus === "wrong_attempt" ? "default" : "secondary"}>{getMistakeStatusLabel(item.mistakeStatus, language)}</Badge>
                                     {item.wrongAnswerText ? <MarkdownRenderer content={item.wrongAnswerText} /> : <p className="text-sm text-muted-foreground italic">{t.detail?.noMistakeAnalysis || "暂无错误解答"}</p>}
-                                    {item.wrongAnswerImageUrl && <div className="pt-3"><Button variant="ghost" size="sm" onClick={() => setShowOwnImage(!showOwnImage)} className="flex items-center gap-2 text-muted-foreground">{showOwnImage ? <><EyeOff className="h-4 w-4" />隐藏图片</> : <><ImageIcon className="h-4 w-4" />查看图片</>}</Button>{showOwnImage && <div className="mt-4"><img src={item.wrongAnswerImageUrl} alt="我的答案图片" className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setIsImageViewerOpen(true)} /><p className="text-xs text-muted-foreground mt-1 text-center">{t.detail?.clickToEnlarge || "Click to enlarge"}</p></div>}</div>}
                                 </div>
                             )}
                         </CardContent>
@@ -586,6 +576,8 @@ export default function ErrorDetailPage() {
                             >
                                 {t.detail?.close || '✕ Close'}
                             </button>
+                            {/* User uploads may be data URLs and need intrinsic viewer sizing. */}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                                 src={item.originalImageUrl}
                                 alt="Full size"

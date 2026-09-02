@@ -38,6 +38,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
                 remarkPlugins={[remarkMath, remarkGfm]}
                 rehypePlugins={[rehypeKatex]}
                 components={{
+                    /* eslint-disable @typescript-eslint/no-unused-vars -- react-markdown node props must not reach DOM elements. */
                     // 自定义样式
                     h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mt-6 mb-4" {...props} />,
                     h2: ({ node, ...props }) => <h2 className="text-xl font-bold mt-5 mb-3" {...props} />,
@@ -74,6 +75,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
                     ),
                     strong: ({ node, ...props }) => <strong className="font-bold text-foreground" {...props} />,
                     em: ({ node, ...props }) => <em className="italic" {...props} />,
+                    /* eslint-enable @typescript-eslint/no-unused-vars */
                 }}
             >
                 {processedContent}

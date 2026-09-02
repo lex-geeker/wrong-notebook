@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { getAIService } from "@/lib/ai";
 import { badRequest, internalError, unauthorized } from "@/lib/api-errors";
+import { chinaDayStart } from "@/lib/china-date";
 import { createLogger } from "@/lib/logger";
 import {
     PRACTICE_COUNTS,
@@ -76,8 +77,14 @@ export async function POST(req: Request) {
 
         const { mode, questionSource, count, language, filters = {}, errorItemId } = parsed.data;
         if (mode === "daily") {
+            const now = new Date();
             const active = await prisma.practiceSession.findFirst({
-                where: { userId: session.user.id, mode: "daily", endedAt: null },
+                where: {
+                    userId: session.user.id,
+                    mode: "daily",
+                    endedAt: null,
+                    startedAt: { gte: chinaDayStart(now), lt: chinaDayStart(now, -1) },
+                },
                 orderBy: { startedAt: "desc" },
                 include: { items: { include: { record: true } } },
             });

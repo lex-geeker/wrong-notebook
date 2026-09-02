@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from "react-image-crop";
+import { useState, useRef } from "react";
+import ReactCrop, { Crop, PixelCrop, centerCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ImageCropperProps {
@@ -14,29 +14,8 @@ interface ImageCropperProps {
     onCropComplete: (croppedImageBlob: Blob) => void;
 }
 
-// Helper to center the crop initially
-function centerAspectCrop(
-    mediaWidth: number,
-    mediaHeight: number,
-    aspect: number,
-) {
-    return centerCrop(
-        makeAspectCrop(
-            {
-                unit: '%',
-                width: 90,
-            },
-            aspect,
-            mediaWidth,
-            mediaHeight,
-        ),
-        mediaWidth,
-        mediaHeight,
-    )
-}
-
 export function ImageCropper({ imageSrc, open, onClose, onCropComplete }: ImageCropperProps) {
-    const { t, language } = useLanguage();
+    const { t } = useLanguage();
     const [crop, setCrop] = useState<Crop>();
     const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
     const imgRef = useRef<HTMLImageElement>(null);
@@ -132,6 +111,9 @@ export function ImageCropper({ imageSrc, open, onClose, onCropComplete }: ImageC
             <DialogContent className="max-w-3xl h-[90vh] flex flex-col p-0 gap-0">
                 <DialogHeader className="p-4 border-b shrink-0">
                     <DialogTitle>{t.common.cropper?.title || "Crop Image"}</DialogTitle>
+                    <DialogDescription className="sr-only">
+                        Crop the selected image before uploading it.
+                    </DialogDescription>
                 </DialogHeader>
 
                 <div className="flex-1 bg-black w-full overflow-auto flex items-center justify-center p-4">
@@ -141,6 +123,8 @@ export function ImageCropper({ imageSrc, open, onClose, onCropComplete }: ImageC
                         onComplete={(c) => setCompletedCrop(c)}
                         className="max-h-full"
                     >
+                        {/* Native image dimensions are required for canvas cropping. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                             ref={imgRef}
                             alt="Crop me"

@@ -17,27 +17,27 @@ interface NotebookSelectorProps {
     value?: string;
     onChange: (value: string) => void;
     className?: string;
+    notebooks?: Notebook[];
 }
 
-export function NotebookSelector({ value, onChange, className }: NotebookSelectorProps) {
-    const [notebooks, setNotebooks] = useState<Notebook[]>([]);
-    const [loading, setLoading] = useState(true);
+export function NotebookSelector({ value, onChange, className, notebooks: providedNotebooks }: NotebookSelectorProps) {
+    const [loadedNotebooks, setLoadedNotebooks] = useState<Notebook[]>([]);
     const { t } = useLanguage();
+    const notebooks = providedNotebooks ?? loadedNotebooks;
 
     useEffect(() => {
+        if (providedNotebooks) return;
         const fetchNotebooks = async () => {
             try {
                 const data = await apiClient.get<Notebook[]>("/api/notebooks");
-                setNotebooks(data);
+                setLoadedNotebooks(data);
             } catch (error) {
                 console.error("Failed to fetch notebooks:", error);
-            } finally {
-                setLoading(false);
             }
         };
 
         fetchNotebooks();
-    }, []);
+    }, [providedNotebooks]);
 
     return (
         <Select value={value} onValueChange={onChange}>

@@ -8,6 +8,7 @@ import { AppConfig } from "@/types/api";
 import { DEFAULT_ANALYZE_TEMPLATE, DEFAULT_SIMILAR_TEMPLATE } from "@/lib/ai/prompts";
 import { RotateCcw, AlertTriangle, Info } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface PromptSettingsProps {
     config: AppConfig;
@@ -29,13 +30,11 @@ function VariableInfo({ name, description }: VariableInfoProps) {
 }
 
 export function PromptSettings({ config, onUpdate }: PromptSettingsProps) {
-    const { language, t } = useLanguage();
+    const { t } = useLanguage();
     const analyzeTemplate = config.prompts?.analyze || DEFAULT_ANALYZE_TEMPLATE;
     const similarTemplate = config.prompts?.similar || DEFAULT_SIMILAR_TEMPLATE;
 
     const handleReset = (type: 'analyze' | 'similar') => {
-        if (!confirm(t.settings?.prompts?.resetConfirm || "Are you sure you want to reset to default?")) return;
-
         const defaultValue = type === 'analyze' ? DEFAULT_ANALYZE_TEMPLATE : DEFAULT_SIMILAR_TEMPLATE;
         if (type === 'analyze') {
             onUpdate('analyze', defaultValue);
@@ -84,10 +83,16 @@ export function PromptSettings({ config, onUpdate }: PromptSettingsProps) {
                             <Label className="text-base font-semibold">
                                 {t.settings?.prompts?.customAnalysis || "Custom Analysis Template"}
                             </Label>
-                            <Button variant="outline" size="sm" onClick={() => handleReset('analyze')}>
-                                <RotateCcw className="w-4 h-4 mr-2" />
-                                {t.settings?.prompts?.reset || "Reset Default"}
-                            </Button>
+                            <ConfirmDialog
+                                title={t.settings?.prompts?.reset || "Reset Default"}
+                                description={t.settings?.prompts?.resetConfirm || "Are you sure you want to reset to default?"}
+                                onConfirm={() => handleReset('analyze')}
+                            >
+                                <Button variant="outline" size="sm">
+                                    <RotateCcw className="w-4 h-4 mr-2" />
+                                    {t.settings?.prompts?.reset || "Reset Default"}
+                                </Button>
+                            </ConfirmDialog>
                         </div>
 
                         {warningBox}
@@ -128,10 +133,16 @@ export function PromptSettings({ config, onUpdate }: PromptSettingsProps) {
                             <Label className="text-base font-semibold">
                                 {t.settings?.prompts?.customSimilar || "Custom Similar Question Template"}
                             </Label>
-                            <Button variant="outline" size="sm" onClick={() => handleReset('similar')}>
-                                <RotateCcw className="w-4 h-4 mr-2" />
-                                {t.settings?.prompts?.reset || "Reset Default"}
-                            </Button>
+                            <ConfirmDialog
+                                title={t.settings?.prompts?.reset || "Reset Default"}
+                                description={t.settings?.prompts?.resetConfirm || "Are you sure you want to reset to default?"}
+                                onConfirm={() => handleReset('similar')}
+                            >
+                                <Button variant="outline" size="sm">
+                                    <RotateCcw className="w-4 h-4 mr-2" />
+                                    {t.settings?.prompts?.reset || "Reset Default"}
+                                </Button>
+                            </ConfirmDialog>
                         </div>
 
                         {warningBox}

@@ -664,6 +664,19 @@ describe('/api/error-items', () => {
                 })
             );
         });
+
+        it.each([
+            'page=abc',
+            'pageSize=0',
+            'timeRange=tomorrow',
+            'mastery=9',
+            'paperLevel=invalid',
+        ])('应该拒绝非法列表参数 %s', async (query) => {
+            const response = await GET_LIST(new Request(`http://localhost/api/error-items/list?${query}`));
+
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaErrorItem.findMany).not.toHaveBeenCalled();
+        });
     });
 
     describe('PUT /api/error-items/[id] (更新笔记)', () => {

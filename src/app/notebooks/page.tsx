@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
@@ -24,32 +24,35 @@ export default function NotebooksPage() {
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [renameTarget, setRenameTarget] = useState<Notebook | null>(null);
+    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
-    useEffect(() => {
-        fetchNotebooks();
-    }, []);
-
-    const fetchNotebooks = async () => {
+    const fetchNotebooks = useCallback(async () => {
         try {
             const data = await apiClient.get<Notebook[]>("/api/notebooks");
             setNotebooks(data);
         } catch (error) {
             console.error("Failed to fetch notebooks:", error);
+            setFeedback({ role: "alert", message: t.common.messages?.loadFailed || "Failed to load notebooks" });
         } finally {
             setLoading(false);
         }
-    };
+    }, [t.common.messages?.loadFailed]);
+
+    useEffect(() => {
+        fetchNotebooks();
+    }, [fetchNotebooks]);
 
     const handleCreate = async (name: string) => {
         try {
             await apiClient.post("/api/notebooks", { name });
             await fetchNotebooks();
+            setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Notebook created" });
         } catch (error: unknown) {
             console.error(error);
             const data = error instanceof ApiError ? error.data : null;
             const message = data && typeof data === "object" && "message" in data && typeof data.message === "string"
                 ? data.message : t.notebooks?.createError || "Failed to create";
-            alert(message);
+            throw new Error(message);
         }
     };
 
@@ -58,24 +61,24 @@ export default function NotebooksPage() {
         await apiClient.put(`/api/notebooks/${renameTarget.id}`, { name });
         setRenameTarget(null);
         await fetchNotebooks();
+        setFeedback({ role: "status", message: t.common.messages?.saveSuccess || "Notebook renamed" });
     };
 
-    const handleDelete = async (id: string, errorCount: number, name: string) => {
+    const handleDelete = async (id: string, errorCount: number) => {
         if (errorCount > 0) {
-            alert(t.notebooks?.deleteNotEmpty || "Please clear all items in this notebook first.");
+            setFeedback({ role: "alert", message: t.notebooks?.deleteNotEmpty || "Please clear all items in this notebook first." });
             return;
         }
-        if (!confirm((t.notebooks?.deleteConfirm || "Are you sure?").replace("{name}", name))) return;
-
         try {
             await apiClient.delete(`/api/notebooks/${id}`);
             await fetchNotebooks();
+            setFeedback({ role: "status", message: t.common.messages?.deleteSuccess || "Notebook deleted" });
         } catch (error: unknown) {
             console.error(error);
             const data = error instanceof ApiError ? error.data : null;
             const message = data && typeof data === "object" && "message" in data && typeof data.message === "string"
                 ? data.message : t.notebooks?.deleteError || "Failed to delete";
-            alert(message);
+            setFeedback({ role: "alert", message });
         }
     };
 
@@ -118,6 +121,12 @@ export default function NotebooksPage() {
                     </div>
                 </div>
 
+                {feedback && (
+                    <p role={feedback.role} className={`rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
+                        {feedback.message}
+                    </p>
+                )}
+
                 {notebooks.length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed rounded-lg">
                         <p className="text-muted-foreground mb-4">
@@ -138,8 +147,9 @@ export default function NotebooksPage() {
                                 errorCount={notebook._count?.errorItems || 0}
                                 onClick={() => handleNotebookClick(notebook.id)}
                                 onRename={() => setRenameTarget(notebook)}
-                                onDelete={() => handleDelete(notebook.id, notebook._count?.errorItems || 0, notebook.name)}
+                                onDelete={() => handleDelete(notebook.id, notebook._count?.errorItems || 0)}
                                 itemLabel={t.notebooks?.items || "items"}
+                                deleteConfirm={(t.notebooks?.deleteConfirm || "Are you sure?").replace("{name}", notebook.name)}
                             />
                         ))}
                     </div>

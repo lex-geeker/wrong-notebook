@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiClient, ApiError } from "@/lib/api-client";
 import { TagStats, TagStatsResponse } from "@/types/api";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 // 标签树节点类型
 interface TagTreeNode {
@@ -66,6 +67,7 @@ export default function TagsPage() {
     const [gradeOptions, setGradeOptions] = useState<Array<{ id: string; name: string }>>([]);
     const [newTagName, setNewTagName] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [feedback, setFeedback] = useState<{ role: "status" | "alert"; message: string } | null>(null);
 
     // 展开状态
     const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
@@ -84,15 +86,13 @@ export default function TagsPage() {
     const fetchCustomTags = useCallback(async () => {
         try {
             // 获取所有学科的扁平标签，过滤非系统标签
-            const allCustom: Array<{ id: string; name: string; subject: string; parentName?: string }> = [];
-            for (const { key } of SUBJECTS) {
+            const responses = await Promise.all(SUBJECTS.map(async ({ key }) => {
                 const data = await apiClient.get<{ tags: Array<{ id: string; name: string; isSystem: boolean; parentName?: string }> }>(
                     `/api/tags?subject=${key}&flat=true`
                 );
-                const custom = data.tags.filter(t => !t.isSystem).map(t => ({ ...t, subject: key }));
-                allCustom.push(...custom);
-            }
-            setCustomTags(allCustom);
+                return data.tags.filter(t => !t.isSystem).map(t => ({ ...t, subject: key }));
+            }));
+            setCustomTags(responses.flat());
         } catch (error) {
             console.error("Failed to fetch custom tags:", error);
         }
@@ -140,11 +140,12 @@ export default function TagsPage() {
     // 添加自定义标签
     const handleAddCustomTag = async () => {
         if (!newTagName.trim()) {
-            alert(t.tags?.custom?.enterName || "Please enter tag name");
+            setFeedback({ role: "alert", message: t.tags?.custom?.enterName || "Please enter tag name" });
             return;
         }
 
         setSubmitting(true);
+        setFeedback(null);
         try {
             await apiClient.post('/api/tags', {
                 name: newTagName.trim(),
@@ -155,12 +156,12 @@ export default function TagsPage() {
             // 刷新
             await fetchCustomTags();
             await fetchTags(newTagSubject);
-            alert(t.tags?.custom?.success || "Tag added successfully!");
+            setFeedback({ role: "status", message: t.tags?.custom?.success || "Tag added successfully!" });
         } catch (error: unknown) {
             if (error instanceof ApiError && error.status === 409) {
-                alert(t.tags?.custom?.exists || "Tag already exists");
+                setFeedback({ role: "alert", message: t.tags?.custom?.exists || "Tag already exists" });
             } else {
-                alert("Failed to add tag");
+                setFeedback({ role: "alert", message: "Failed to add tag" });
             }
         } finally {
             setSubmitting(false);
@@ -168,18 +169,15 @@ export default function TagsPage() {
     };
 
     // 删除自定义标签
-    const handleRemoveCustomTag = async (tagId: string, tagName: string, subject: SubjectKey) => {
-        if (!confirm((t.tags?.custom?.deleteConfirm || "Are you sure you want to delete tag \"{tag}\"?").replace("{tag}", tagName))) {
-            return;
-        }
-
+    const handleRemoveCustomTag = async (tagId: string, subject: SubjectKey) => {
         try {
             await apiClient.delete(`/api/tags?id=${tagId}`);
             await fetchCustomTags();
             await fetchTags(subject);
+            setFeedback({ role: "status", message: t.common.messages?.deleteSuccess || "Tag deleted" });
         } catch (error) {
             console.error("Failed to delete tag:", error);
-            alert("Failed to delete tag");
+            setFeedback({ role: "alert", message: t.common.messages?.deleteFailed || "Failed to delete tag" });
         }
     };
 
@@ -404,13 +402,18 @@ export default function TagsPage() {
                                                 {groupedByParent[groupName].map((tag) => (
                                                     <Badge key={tag.id} variant="secondary" className="px-3 py-1.5 text-sm">
                                                         {tag.name}
-                                                        <button
-                                                            onClick={() => handleRemoveCustomTag(tag.id, tag.name, key)}
-                                                            className="ml-2 hover:text-destructive transition-colors"
+                                                        <ConfirmDialog
                                                             title={t.common?.delete || "Delete"}
+                                                            description={(t.tags?.custom?.deleteConfirm || "Are you sure you want to delete tag \"{tag}\"?").replace("{tag}", tag.name)}
+                                                            onConfirm={() => handleRemoveCustomTag(tag.id, key)}
                                                         >
-                                                            <Trash2 className="h-3 w-3" />
-                                                        </button>
+                                                            <button
+                                                                className="ml-2 transition-colors hover:text-destructive"
+                                                                title={t.common?.delete || "Delete"}
+                                                            >
+                                                                <Trash2 className="h-3 w-3" />
+                                                            </button>
+                                                        </ConfirmDialog>
                                                     </Badge>
                                                 ))}
                                             </div>
@@ -471,6 +474,12 @@ export default function TagsPage() {
                     </Link>
                 </div>
             </div>
+
+            {feedback && (
+                <p role={feedback.role} className={`mb-6 rounded-md border p-3 text-sm ${feedback.role === "alert" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"}`}>
+                    {feedback.message}
+                </p>
+            )}
 
             <Tabs defaultValue="standard" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 mb-6">

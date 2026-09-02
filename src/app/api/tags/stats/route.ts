@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  * GET /api/tags/stats
  * 获取标签使用频率统计
  */
-export async function GET(_request?: Request) {
+export async function GET(request?: Request) {
+    void request;
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return unauthorized();
 
