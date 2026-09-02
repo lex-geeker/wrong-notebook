@@ -29,7 +29,6 @@ const baseItem = {
     sourceQuestionText: "source question",
     sourceAnswerText: "source answer",
     generationMode: "variant",
-    purpose: "review",
 };
 
 const session = {
@@ -64,7 +63,7 @@ const session = {
 
 const context = { params: Promise.resolve({ id: "session-1" }) };
 
-function patchRequest(paperResults: Array<{ itemId: string; isCorrect: boolean; errorType?: string; corrected?: boolean }>) {
+function patchRequest(paperResults: Array<{ itemId: string; isCorrect: boolean }>) {
     return new Request("http://localhost/api/practice/sessions/session-1", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -110,7 +109,7 @@ describe("/api/practice/sessions/[id]", () => {
             ...session,
             items: session.items.map((item, index) => ({
                 ...item,
-                errorItem: { masteryLevel: index + 1, correctedAt: new Date("2025-12-01T00:00:00Z") },
+                errorItem: { masteryLevel: index + 1 },
             })),
         };
         const completed = {
@@ -135,7 +134,7 @@ describe("/api/practice/sessions/[id]", () => {
 
         const response = await PATCH(patchRequest([
             { itemId: "item-1", isCorrect: true },
-            { itemId: "item-2", isCorrect: false, errorType: "method", corrected: true },
+            { itemId: "item-2", isCorrect: false },
         ]), context);
         const body = await response.json();
 
@@ -153,7 +152,7 @@ describe("/api/practice/sessions/[id]", () => {
     it("rejects missing results before writing any records", async () => {
         mocks.txFindSession.mockResolvedValue({
             ...session,
-            items: session.items.map((item) => ({ ...item, errorItem: { masteryLevel: 0, correctedAt: new Date() } })),
+            items: session.items.map((item) => ({ ...item, errorItem: { masteryLevel: 0 } })),
         });
 
         const response = await PATCH(patchRequest([{ itemId: "item-1", isCorrect: true }]), context);
@@ -166,7 +165,7 @@ describe("/api/practice/sessions/[id]", () => {
     it("does not close the session when a paper record write fails", async () => {
         mocks.txFindSession.mockResolvedValue({
             ...session,
-            items: session.items.map((item) => ({ ...item, errorItem: { masteryLevel: 0, correctedAt: new Date() } })),
+            items: session.items.map((item) => ({ ...item, errorItem: { masteryLevel: 0 } })),
         });
         mocks.createRecord.mockRejectedValueOnce(new Error("write failed"));
 
@@ -177,47 +176,5 @@ describe("/api/practice/sessions/[id]", () => {
 
         expect(response.status).toBe(500);
         expect(mocks.updateSession).not.toHaveBeenCalled();
-    });
-
-    it("completes an initial correction without increasing mastery", async () => {
-        const correctionSession = {
-            ...session,
-            mode: "daily",
-            items: [{
-                ...session.items[0],
-                purpose: "correction",
-                errorItem: { masteryLevel: 0, correctedAt: null },
-            }],
-        };
-        const completed = { ...correctionSession, endedAt: new Date(), items: [{ ...correctionSession.items[0], record: { isCorrect: true, answerInput: null } }] };
-        mocks.txFindSession.mockResolvedValueOnce(correctionSession).mockResolvedValueOnce(completed);
-
-        const response = await PATCH(patchRequest([{ itemId: "item-1", isCorrect: true, errorType: "reading" }]), context);
-
-        expect(response.status).toBe(200);
-        expect(mocks.updateErrorItem).toHaveBeenCalledWith(expect.objectContaining({
-            data: expect.objectContaining({ errorType: "reading", correctedAt: expect.any(Date) }),
-        }));
-        expect(mocks.updateErrorItem.mock.calls[0][0].data).not.toHaveProperty("masteryLevel");
-    });
-
-    it("rejects a wrong answer until cause and completed correction are confirmed", async () => {
-        mocks.txFindSession.mockResolvedValue({
-            ...session,
-            items: session.items.map((item) => ({ ...item, errorItem: { masteryLevel: 0, correctedAt: new Date() } })),
-        });
-
-        const missingCause = await PATCH(patchRequest([
-            { itemId: "item-1", isCorrect: true },
-            { itemId: "item-2", isCorrect: false, corrected: true },
-        ]), context);
-        const missingConfirmation = await PATCH(patchRequest([
-            { itemId: "item-1", isCorrect: true },
-            { itemId: "item-2", isCorrect: false, errorType: "knowledge" },
-        ]), context);
-
-        expect(missingCause.status).toBe(400);
-        expect(missingConfirmation.status).toBe(400);
-        expect(mocks.createRecord).not.toHaveBeenCalled();
     });
 });

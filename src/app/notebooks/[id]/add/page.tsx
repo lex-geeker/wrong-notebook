@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, House } from "lucide-react";
 import { ErrorEntryFlow } from "@/components/error-entry-flow";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -21,7 +21,12 @@ export default function AddErrorPage() {
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
                     </Link>
-                    <h1 className="text-2xl font-bold">{t.app.addError}</h1>
+                    <h1 className="min-w-0 flex-1 text-2xl font-bold">{t.app.addError}</h1>
+                    <Link href="/">
+                        <Button variant="ghost" size="icon" title={t.practice.batch.home} aria-label={t.practice.batch.home}>
+                            <House className="h-5 w-5" />
+                        </Button>
+                    </Link>
                 </div>
                 <ErrorEntryFlow fixedNotebookId={id} onSaved={() => router.push(`/notebooks/${id}`)} />
             </div>

@@ -6,15 +6,12 @@ import { badRequest, conflict, internalError, notFound, unauthorized } from "@/l
 import { createLogger } from "@/lib/logger";
 import { nextMasteryLevel, serializePracticeSession } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
-import { ERROR_TYPES } from "@/lib/error-metadata";
 
 const logger = createLogger("api:practice:sessions:item");
 const paperResultsSchema = z.object({
     paperResults: z.array(z.object({
         itemId: z.string().min(1),
         isCorrect: z.boolean(),
-        errorType: z.enum(ERROR_TYPES).optional(),
-        corrected: z.boolean().optional(),
     })).min(1).max(20),
 });
 
@@ -55,7 +52,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                 where: { id, userId },
                 include: {
                     items: {
-                        include: { record: true, errorItem: { select: { masteryLevel: true, correctedAt: true } } },
+                        include: { record: true, errorItem: { select: { masteryLevel: true } } },
                     },
                 },
             });
@@ -63,13 +60,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             if (practiceSession.endedAt || practiceSession.items.some((item) => item.record)) return "finished" as const;
             if (practiceSession.items.length !== resultById.size
                 || practiceSession.items.some((item) => !resultById.has(item.id))) return "incomplete" as const;
-            for (const item of practiceSession.items) {
-                const paperResult = resultById.get(item.id)!;
-                if ((item.purpose === "correction" || !paperResult.isCorrect) && !paperResult.errorType) {
-                    return "missingErrorType" as const;
-                }
-                if (!paperResult.isCorrect && paperResult.corrected !== true) return "notCorrected" as const;
-            }
 
             for (const item of practiceSession.items) {
                 const paperResult = resultById.get(item.id)!;
@@ -85,18 +75,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                     },
                 });
                 if (item.errorItemId && item.errorItem) {
-                    const data = item.purpose === "correction"
-                        ? {
-                            correctedAt: item.errorItem.correctedAt || new Date(),
-                            errorType: paperResult.errorType,
-                        }
-                        : {
-                            masteryLevel: nextMasteryLevel(item.errorItem.masteryLevel, isCorrect),
-                            ...(!isCorrect ? { errorType: paperResult.errorType } : {}),
-                        };
                     await tx.errorItem.update({
                         where: { id: item.errorItemId, userId },
-                        data,
+                        data: { masteryLevel: nextMasteryLevel(item.errorItem.masteryLevel, isCorrect) },
                     });
                 }
             }
@@ -111,8 +92,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if (result === "notFound" || !result) return notFound("Practice session not found");
         if (result === "finished") return conflict("This practice session is already finished");
         if (result === "incomplete") return badRequest("Mark every paper answer exactly once");
-        if (result === "missingErrorType") return badRequest("Select an error cause for corrections and incorrect answers");
-        if (result === "notCorrected") return badRequest("Confirm every incorrect answer has been corrected");
         return NextResponse.json(serializePracticeSession(result));
     } catch (error) {
         logger.error({ error }, "Failed to save paper practice results");

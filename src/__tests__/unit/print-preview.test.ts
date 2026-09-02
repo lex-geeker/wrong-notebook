@@ -63,7 +63,6 @@ describe('print preview helpers', () => {
                     errorItemId: 'error-1',
                     questionText: 'variant question',
                     generationMode: 'variant' as const,
-                    purpose: 'review' as const,
                     answer: {
                         answerInput: '4',
                         expectedAnswer: '4',
@@ -77,7 +76,6 @@ describe('print preview helpers', () => {
                     errorItemId: 'error-2',
                     questionText: 'original question',
                     generationMode: 'original' as const,
-                    purpose: 'correction' as const,
                 },
             ],
         };

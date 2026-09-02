@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient } from "@/lib/api-client";
-import { Loader2, Users, BookOpen, PenTool, Layers, TrendingUp, CheckCircle, Clock, AlertCircle, ChevronDown, ChevronUp, Eye, BarChart3, ArrowLeft } from "lucide-react";
+import { Loader2, Users, BookOpen, PenTool, Layers, TrendingUp, CheckCircle, Clock, AlertCircle, ChevronDown, ChevronUp, Eye, BarChart3, ArrowLeft, House } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -377,12 +378,17 @@ export default function AdminPage() {
                     <ArrowLeft className="h-4 w-4 mr-1" />
                     {t.common?.back || "返回"}
                 </Button>
-                <div>
+                <div className="min-w-0 flex-1">
                     <h1 className="text-2xl font-bold">{t.admin?.dashboard?.title || "管理员仪表盘"}</h1>
                     <p className="text-sm text-muted-foreground">
                         {t.admin?.dashboard?.subtitle || "查看全站用户和错题统计"}
                     </p>
                 </div>
+                <Link href="/">
+                    <Button variant="ghost" size="icon" title={t.practice.batch.home} aria-label={t.practice.batch.home}>
+                        <House className="h-5 w-5" />
+                    </Button>
+                </Link>
             </div>
 
             {/* Overview Cards */}

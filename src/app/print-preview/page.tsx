@@ -10,7 +10,7 @@ import { apiClient } from "@/lib/api-client";
 import { ErrorItem, PaginatedResponse, PracticeSessionData } from "@/types/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PRINT_PREVIEW_PAGE_SIZE } from "@/lib/constants/pagination";
-import { Smartphone } from "lucide-react";
+import { House, Smartphone } from "lucide-react";
 import {
     getPrintPreviewCountLabel,
     getPrintPreviewEmptyState,
@@ -137,6 +137,11 @@ function PrintPreviewContent() {
                         <Button onClick={handlePrint} size="sm" className="whitespace-nowrap" disabled={selectedItems.length === 0}>
                             {t.printPreview?.printButton || 'Print / Save PDF'}
                         </Button>
+                        <Link href="/" className="ml-auto">
+                            <Button variant="ghost" size="icon" title={t.practice.batch.home} aria-label={t.practice.batch.home}>
+                                <House className="h-5 w-5" />
+                            </Button>
+                        </Link>
                     </div>
 
                     {/* Controls Row */}

@@ -44,23 +44,22 @@ describe("GET /api/learning-overview", () => {
                 questionText: "1+1",
                 answerText: "2",
                 generationMode: "original",
-                purpose: "correction",
                 record: null,
             }],
         });
         mocks.findCompletedSessions.mockResolvedValue([{ endedAt: new Date("2026-09-01T16:30:00Z") }]);
         mocks.findItems.mockResolvedValue([
-            { correctedAt: null, errorType: null, tags: [], practiceRecords: [] },
+            { createdAt: new Date("2026-09-02T04:00:00Z"), errorType: null, tags: [], practiceRecords: [] },
             {
-                correctedAt: new Date("2026-09-01T00:00:00Z"),
+                createdAt: new Date("2026-09-01T00:00:00Z"),
                 errorType: "method",
                 tags: [{ name: "两位数加法" }],
                 practiceRecords: [
-                    { createdAt: new Date("2026-09-01T01:00:00Z"), isCorrect: true, sessionItem: { purpose: "correction" } },
-                    { createdAt: new Date("2026-09-02T01:00:00Z"), isCorrect: false, sessionItem: { purpose: "review" } },
+                    { createdAt: new Date("2026-09-01T01:00:00Z"), isCorrect: true },
+                    { createdAt: new Date("2026-09-02T01:00:00Z"), isCorrect: false },
                 ],
             },
-            { correctedAt: new Date("2020-01-01T00:00:00Z"), errorType: "reading", tags: [], practiceRecords: [] },
+            { createdAt: new Date("2020-01-01T00:00:00Z"), errorType: "reading", tags: [], practiceRecords: [] },
         ]);
     });
 
@@ -71,16 +70,16 @@ describe("GET /api/learning-overview", () => {
         const body = await response.json();
 
         expect(response.status).toBe(200);
-        expect(body.today).toEqual({ pendingCorrectionCount: 1, dueReviewCount: 1, unfinishedCount: 1 });
-        expect(body.activeSession).toMatchObject({ id: "daily-1", items: [{ purpose: "correction" }] });
+        expect(body.today).toEqual({ dueReviewCount: 1, unfinishedCount: 1 });
+        expect(body.activeSession).toMatchObject({ id: "daily-1", items: [{ id: "session-item-1" }] });
         expect(body.week).toMatchObject({
             completionDays: ["2026-09-02"],
-            reviewedCount: 1,
-            correctCount: 0,
-            accuracy: 0,
-            correctedCount: 1,
-            topErrorTypes: [{ name: "method", count: 2 }],
-            weakTags: [{ name: "两位数加法", count: 2 }],
+            reviewedCount: 2,
+            correctCount: 1,
+            accuracy: 50,
+            wrongCount: 1,
+            topErrorTypes: [{ name: "method", count: 1 }],
+            weakTags: [{ name: "两位数加法", count: 1 }],
         });
     });
 

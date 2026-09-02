@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient } from "@/lib/api-client";
-import { Loader2, ArrowLeft, User, BookOpen, PenTool, Layers, Calendar, Tag, CheckCircle, Clock, AlertCircle, Eye } from "lucide-react";
+import { Loader2, ArrowLeft, User, BookOpen, PenTool, Layers, Calendar, Tag, CheckCircle, Clock, AlertCircle, Eye, House } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -70,25 +71,32 @@ export default function AdminUserDetailPage() {
         <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center gap-4">
-                <Button variant="ghost" size="sm" onClick={() => router.push("/admin")}>
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => router.push("/admin")}>
                     <ArrowLeft className="h-4 w-4 mr-1" />
                     {t.common?.back || "返回"}
                 </Button>
-                <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1 flex flex-wrap items-center gap-3">
                     <div className="p-2 rounded-full bg-blue-50 dark:bg-blue-950/30">
                         <User className="h-6 w-6 text-blue-500" />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                         <h1 className="text-xl font-bold">{data.user.name || "N/A"}</h1>
-                        <p className="text-sm text-muted-foreground">{data.user.email}</p>
+                        <p className="truncate text-sm text-muted-foreground">{data.user.email}</p>
                     </div>
-                    {data.user.role === "admin" && (
-                        <Badge variant="default">{t.admin?.admin || "管理员"}</Badge>
-                    )}
-                    <Badge variant={data.user.isActive ? "default" : "destructive"}>
-                        {data.user.isActive ? (t.admin?.active || "启用") : (t.admin?.disabled || "禁用")}
-                    </Badge>
+                    <div className="flex flex-wrap gap-2">
+                        {data.user.role === "admin" && (
+                            <Badge variant="default">{t.admin?.admin || "管理员"}</Badge>
+                        )}
+                        <Badge variant={data.user.isActive ? "default" : "destructive"}>
+                            {data.user.isActive ? (t.admin?.active || "启用") : (t.admin?.disabled || "禁用")}
+                        </Badge>
+                    </div>
                 </div>
+                <Link href="/" className="shrink-0">
+                    <Button variant="ghost" size="icon" title={t.practice.batch.home} aria-label={t.practice.batch.home}>
+                        <House className="h-5 w-5" />
+                    </Button>
+                </Link>
             </div>
 
             {/* Stats Cards */}

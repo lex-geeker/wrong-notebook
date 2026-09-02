@@ -11,7 +11,6 @@ import {
     PRACTICE_MODES,
     PRACTICE_SOURCES,
     getNextReviewDate,
-    getReviewRecords,
     isReviewDue,
     pickRandom,
     serializePracticeSession,
@@ -97,7 +96,6 @@ export async function POST(req: Request) {
 
         const where: Prisma.ErrorItemWhereInput = {
             userId: session.user.id,
-            ...(mode === "daily" ? {} : { correctedAt: { not: null } }),
             ...(errorItemId ? { id: errorItemId } : {}),
             ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
             ...(filters.gradeSemester ? { gradeSemester: { contains: filters.gradeSemester } } : {}),
@@ -119,7 +117,6 @@ export async function POST(req: Request) {
             select: {
                 id: true,
                 createdAt: true,
-                correctedAt: true,
                 questionText: true,
                 answerText: true,
                 gradeSemester: true,
@@ -130,35 +127,23 @@ export async function POST(req: Request) {
                     select: {
                         createdAt: true,
                         isCorrect: true,
-                        sessionItem: { select: { purpose: true } },
                     },
                 },
             },
         });
-        const reviewRecords = (item: (typeof candidates)[number]) => getReviewRecords(item.practiceRecords);
-        const reviewCandidates = candidates.filter((item) => item.correctedAt !== null);
         const selected = mode === "daily"
-            ? [
-                ...candidates
-                    .filter((item) => item.correctedAt === null)
-                    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-                    .slice(0, Math.min(5, count))
-                    .map((item) => ({ item, purpose: "correction" as const })),
-                ...reviewCandidates
-                    .filter((item) => isReviewDue(item.correctedAt!, reviewRecords(item)))
-                    .sort((a, b) => getNextReviewDate(a.correctedAt!, reviewRecords(a)).getTime()
-                        - getNextReviewDate(b.correctedAt!, reviewRecords(b)).getTime())
-                    .slice(0, Math.max(0, Math.min(5, count) - candidates.filter((item) => item.correctedAt === null).length))
-                    .map((item) => ({ item, purpose: "review" as const })),
-            ]
+            ? candidates
+                .filter((item) => isReviewDue(item.createdAt, item.practiceRecords))
+                .sort((a, b) => getNextReviewDate(a.createdAt, a.practiceRecords).getTime()
+                    - getNextReviewDate(b.createdAt, b.practiceRecords).getTime())
+                .slice(0, Math.min(5, count))
             : (mode === "ebbinghaus"
-                ? reviewCandidates
-                    .filter((item) => isReviewDue(item.correctedAt!, reviewRecords(item)))
-                    .sort((a, b) => getNextReviewDate(a.correctedAt!, reviewRecords(a)).getTime()
-                        - getNextReviewDate(b.correctedAt!, reviewRecords(b)).getTime())
+                ? candidates
+                    .filter((item) => isReviewDue(item.createdAt, item.practiceRecords))
+                    .sort((a, b) => getNextReviewDate(a.createdAt, a.practiceRecords).getTime()
+                        - getNextReviewDate(b.createdAt, b.practiceRecords).getTime())
                     .slice(0, errorItemId ? 1 : count)
-                : pickRandom(reviewCandidates, errorItemId ? 1 : count))
-                .map((item) => ({ item, purpose: "review" as const }));
+                : pickRandom(candidates, errorItemId ? 1 : count));
         if (!selected.length) {
             return mode === "ebbinghaus"
                 ? badRequest(language === "zh" ? "当前没有到期的复习题" : "No review questions are due", { reason: "NO_DUE_REVIEWS" })
@@ -178,7 +163,7 @@ export async function POST(req: Request) {
                 logger.warn({ error }, "Variant service unavailable; using original questions");
             }
         }
-        const createItem = async ({ item, purpose }: (typeof selected)[number], position: number) => {
+        const createItem = async (item: (typeof selected)[number], position: number) => {
             const knowledgePoints = item.tags.map((tag) => tag.name);
             const base = {
                 errorItemId: item.id,
@@ -191,10 +176,9 @@ export async function POST(req: Request) {
                 questionText: item.questionText!,
                 answerText: item.answerText!,
                 generationMode: "original",
-                purpose,
             };
 
-            if (questionSource === "original" || purpose === "correction") return base;
+            if (questionSource === "original") return base;
             if (!aiService) return { ...base, generationMode: "fallback" };
             try {
                 const variant = await aiService.generateSimilarQuestion(

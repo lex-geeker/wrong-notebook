@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { unauthorized, internalError } from "@/lib/api-errors";
 import { chinaDateKey, chinaDayStart } from "@/lib/china-date";
 import { createLogger } from "@/lib/logger";
-import { getReviewRecords, isReviewDue, serializePracticeSession } from "@/lib/practice";
+import { isReviewDue, serializePracticeSession } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 
 const logger = createLogger("api:learning-overview");
@@ -29,7 +29,7 @@ export async function GET() {
                     NOT: [{ questionText: "" }, { answerText: "" }],
                 },
                 select: {
-                    correctedAt: true,
+                    createdAt: true,
                     errorType: true,
                     tags: { select: { name: true } },
                     practiceRecords: {
@@ -37,7 +37,6 @@ export async function GET() {
                         select: {
                             createdAt: true,
                             isCorrect: true,
-                            sessionItem: { select: { purpose: true } },
                         },
                     },
                 },
@@ -54,28 +53,21 @@ export async function GET() {
         ]);
 
         const now = new Date();
-        const reviewRecords = items.flatMap((item) => getReviewRecords(item.practiceRecords));
+        const reviewRecords = items.flatMap((item) => item.practiceRecords);
         const recentReviews = reviewRecords.filter((record) => record.createdAt >= weekStart);
         const errorTypeCounts = new Map<string, number>();
         const tagCounts = new Map<string, number>();
-        let correctedCount = 0;
 
         for (const item of items) {
-            const records = getReviewRecords(item.practiceRecords);
-            const recentWrongCount = records.filter((record) => record.createdAt >= weekStart && record.isCorrect === false).length;
-            const recentlyCorrected = Boolean(item.correctedAt && item.correctedAt >= weekStart);
-            if (recentlyCorrected) correctedCount++;
-            const activityCount = recentWrongCount + Number(recentlyCorrected);
-            if (!activityCount) continue;
-            if (item.errorType) errorTypeCounts.set(item.errorType, (errorTypeCounts.get(item.errorType) || 0) + activityCount);
-            for (const tag of item.tags) tagCounts.set(tag.name, (tagCounts.get(tag.name) || 0) + activityCount);
+            const recentWrongCount = item.practiceRecords.filter((record) => record.createdAt >= weekStart && record.isCorrect === false).length;
+            if (!recentWrongCount) continue;
+            if (item.errorType) errorTypeCounts.set(item.errorType, (errorTypeCounts.get(item.errorType) || 0) + recentWrongCount);
+            for (const tag of item.tags) tagCounts.set(tag.name, (tagCounts.get(tag.name) || 0) + recentWrongCount);
         }
 
         return NextResponse.json({
             today: {
-                pendingCorrectionCount: items.filter((item) => item.correctedAt === null).length,
-                dueReviewCount: items.filter((item) => item.correctedAt
-                    && isReviewDue(item.correctedAt, getReviewRecords(item.practiceRecords), now)).length,
+                dueReviewCount: items.filter((item) => isReviewDue(item.createdAt, item.practiceRecords, now)).length,
                 unfinishedCount: activeSession
                     ? activeSession.items.filter((item) => !item.record || item.record.isCorrect === null).length
                     : 0,
@@ -89,7 +81,7 @@ export async function GET() {
                 accuracy: recentReviews.length
                     ? Math.round(recentReviews.filter((record) => record.isCorrect === true).length / recentReviews.length * 100)
                     : 0,
-                correctedCount,
+                wrongCount: recentReviews.filter((record) => record.isCorrect === false).length,
                 topErrorTypes: topThree([...errorTypeCounts].map(([name, count]) => ({ name, count }))),
                 weakTags: topThree([...tagCounts].map(([name, count]) => ({ name, count }))),
             },

@@ -41,7 +41,7 @@ export async function GET(req: Request) {
         ]);
 
         const exportData = {
-            version: 3,
+            version: 4,
             exportedAt: new Date().toISOString(),
             scope: exportAll ? 'all' : 'user',
             user: {

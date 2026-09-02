@@ -30,12 +30,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { ApiError, apiClient } from "@/lib/api-client";
 import { PRACTICE_COUNTS, type PracticeCount, type PracticeMode, type PracticeSource } from "@/lib/practice";
 import type { Notebook, PracticeSessionData, PracticeSessionSummary } from "@/types/api";
-import {
-    ERROR_TYPES,
-    ERROR_TYPE_LABELS,
-    metadataLabel,
-    type ErrorType,
-} from "@/lib/error-metadata";
 
 export const dynamic = "force-dynamic";
 
@@ -48,8 +42,6 @@ type AnswerResponse = {
 
 type PaperResult = {
     isCorrect?: boolean;
-    errorType?: ErrorType;
-    corrected?: boolean;
 };
 
 function apiMessage(cause: unknown, fallback: string) {
@@ -179,12 +171,7 @@ function PracticeContent() {
     }
 
     async function savePaperResults() {
-        if (!session || !session.items.every((item) => {
-            const result = paperResults[item.id];
-            return typeof result?.isCorrect === "boolean"
-                && (!(item.purpose === "correction" || !result.isCorrect) || Boolean(result.errorType))
-                && (result.isCorrect || result.corrected === true);
-        })) return;
+        if (!session || !session.items.every((item) => typeof paperResults[item.id]?.isCorrect === "boolean")) return;
         setSubmitting(true);
         setError("");
         try {
@@ -273,12 +260,7 @@ function PracticeContent() {
 
     if (paperMode && session) {
         const markedCount = session.items.filter((item) => typeof paperResults[item.id]?.isCorrect === "boolean").length;
-        const allMarked = session.items.every((item) => {
-            const result = paperResults[item.id];
-            return typeof result?.isCorrect === "boolean"
-                && (!(item.purpose === "correction" || !result.isCorrect) || Boolean(result.errorType))
-                && (result.isCorrect || result.corrected === true);
-        });
+        const allMarked = session.items.every((item) => typeof paperResults[item.id]?.isCorrect === "boolean");
         const correctCount = Object.values(paperResults).filter((result) => result.isCorrect).length;
 
         if (paperSaved) {
@@ -318,7 +300,6 @@ function PracticeContent() {
                     {session.items.map((item, index) => {
                         const result = paperResults[item.id];
                         const marked = typeof result?.isCorrect === "boolean";
-                        const needsCause = item.purpose === "correction" || result?.isCorrect === false;
                         return (
                             <section key={item.id} className="py-7">
                                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -352,39 +333,6 @@ function PracticeContent() {
                                         <CheckCircle2 className="mr-2 h-4 w-4" />{copy.paperCorrect}
                                     </Button>
                                 </div>
-                                {needsCause && (
-                                    <div className="mt-4 space-y-4 rounded-md border bg-muted/30 p-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor={`error-type-${item.id}`}>{language === "zh" ? "这题为什么会错？" : "Why was this missed?"}</Label>
-                                            <Select
-                                                value={result?.errorType}
-                                                onValueChange={(value) => setPaperResults((current) => ({
-                                                    ...current,
-                                                    [item.id]: { ...current[item.id], errorType: value as ErrorType },
-                                                }))}
-                                            >
-                                                <SelectTrigger id={`error-type-${item.id}`}><SelectValue placeholder={language === "zh" ? "选择错因" : "Select a cause"} /></SelectTrigger>
-                                                <SelectContent>
-                                                    {ERROR_TYPES.map((value) => <SelectItem key={value} value={value}>{metadataLabel(value, ERROR_TYPE_LABELS, language)}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        {result?.isCorrect === false && (
-                                            <label className="flex cursor-pointer items-start gap-3 text-sm">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={result.corrected === true}
-                                                    onChange={(event) => setPaperResults((current) => ({
-                                                        ...current,
-                                                        [item.id]: { ...current[item.id], corrected: event.target.checked },
-                                                    }))}
-                                                    className="mt-0.5 h-4 w-4 rounded border-input"
-                                                />
-                                                <span>{language === "zh" ? "孩子已经看懂并在纸上完成订正" : "The correction has been completed on paper"}</span>
-                                            </label>
-                                        )}
-                                    </div>
-                                )}
                             </section>
                         );
                     })}

@@ -24,7 +24,6 @@ const item = {
     errorItemId: 'error-1',
     subjectName: 'Math',
     answerText: '4',
-    purpose: 'review',
     record: null,
     errorItem: { masteryLevel: 1 },
 };
@@ -102,16 +101,6 @@ describe('POST /api/practice/sessions/[id]/answer', () => {
         const response = await POST(request({ action: 'submit', itemId: 'item-1', answerInput: '4' }), context);
 
         expect(response.status).toBe(409);
-        expect(mocks.createRecord).not.toHaveBeenCalled();
-        expect(mocks.updateErrorItem).not.toHaveBeenCalled();
-    });
-
-    it('keeps correction items in the paper grading workflow', async () => {
-        mocks.findItem.mockResolvedValue({ ...item, purpose: 'correction' });
-
-        const response = await POST(request({ action: 'submit', itemId: 'item-1', answerInput: '4' }), context);
-
-        expect(response.status).toBe(400);
         expect(mocks.createRecord).not.toHaveBeenCalled();
         expect(mocks.updateErrorItem).not.toHaveBeenCalled();
     });

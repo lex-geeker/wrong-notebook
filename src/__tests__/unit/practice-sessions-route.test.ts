@@ -21,10 +21,9 @@ vi.mock("@/lib/prisma", () => ({
 
 import { POST } from "@/app/api/practice/sessions/route";
 
-const candidate = (id: string, createdAt: string, correctedAt: string | null = createdAt) => ({
+const candidate = (id: string, createdAt: string) => ({
     id,
     createdAt: new Date(createdAt),
-    correctedAt: correctedAt ? new Date(correctedAt) : null,
     questionText: `question-${id}`,
     answerText: `answer-${id}`,
     gradeSemester: null,
@@ -127,14 +126,15 @@ describe("POST /api/practice/sessions", () => {
         expect(mocks.createSession).not.toHaveBeenCalled();
     });
 
-    it("orders corrections first, fills with earliest due reviews, and caps daily work at five", async () => {
+    it("orders due reviews by date, skips future items, and caps daily work at five", async () => {
         mocks.findMany.mockResolvedValue([
-            candidate("review-later", "2020-01-02T00:00:00Z"),
-            candidate("pending-newer", "2026-01-02T00:00:00Z", null),
-            candidate("review-earlier", "2020-01-01T00:00:00Z"),
-            candidate("pending-older", "2026-01-01T00:00:00Z", null),
-            candidate("review-third", "2020-01-03T00:00:00Z"),
-            candidate("review-fourth", "2020-01-04T00:00:00Z"),
+            candidate("later", "2020-01-02T00:00:00Z"),
+            candidate("future", "2099-01-01T00:00:00Z"),
+            candidate("earlier", "2020-01-01T00:00:00Z"),
+            candidate("third", "2020-01-03T00:00:00Z"),
+            candidate("fourth", "2020-01-04T00:00:00Z"),
+            candidate("fifth", "2020-01-05T00:00:00Z"),
+            candidate("sixth", "2020-01-06T00:00:00Z"),
         ]);
         mocks.generateSimilarQuestion.mockImplementation((question: string) => Promise.resolve({
             questionText: `variant-${question}`,
@@ -147,13 +147,10 @@ describe("POST /api/practice/sessions", () => {
         expect(response.status).toBe(201);
         expect(createdItems).toHaveLength(5);
         expect(createdItems.map((item: { errorItemId: string }) => item.errorItemId)).toEqual([
-            "pending-older", "pending-newer", "review-earlier", "review-later", "review-third",
+            "earlier", "later", "third", "fourth", "fifth",
         ]);
-        expect(createdItems.map((item: { purpose: string }) => item.purpose)).toEqual([
-            "correction", "correction", "review", "review", "review",
-        ]);
-        expect(createdItems.slice(0, 2).every((item: { generationMode: string }) => item.generationMode === "original")).toBe(true);
-        expect(mocks.generateSimilarQuestion).toHaveBeenCalledTimes(3);
+        expect(createdItems.every((item: { generationMode: string }) => item.generationMode === "variant")).toBe(true);
+        expect(mocks.generateSimilarQuestion).toHaveBeenCalledTimes(5);
     });
 
     it("tries every selected variant and falls back only failed questions", async () => {

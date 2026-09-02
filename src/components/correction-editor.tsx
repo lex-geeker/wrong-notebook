@@ -301,7 +301,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>{language === "zh" ? "错因（可稍后订正时填写）" : "Error cause (optional)"}</Label>
+                            <Label>{language === "zh" ? "错因（可选）" : "Error cause (optional)"}</Label>
                             <Select value={data.errorType || "unclassified"} onValueChange={(value) => setData({ ...data, errorType: value === "unclassified" ? undefined : value as ErrorType })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>

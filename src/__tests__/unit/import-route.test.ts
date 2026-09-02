@@ -26,12 +26,12 @@ describe('POST /api/import', () => {
         }));
     });
 
-    it('rejects backup formats older than version 3', async () => {
+    it('rejects the previous backup format', async () => {
         const response = await POST(new Request('http://localhost/api/import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                version: 1,
+                version: 3,
                 user: { email: 'user@example.com' },
                 subjects: [],
                 customTags: [],

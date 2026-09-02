@@ -11,7 +11,7 @@ import type { LearningOverview } from "@/types/api";
 function praise(data: LearningOverview, language: string) {
     if (data.week.completionDays.length >= 5) return language === "zh" ? "这周坚持得很稳，表扬孩子按计划完成练习。" : "A steady week: praise the consistent daily practice.";
     if (data.week.completionDays.length >= 3) return language === "zh" ? "已经形成不错的节奏，继续守住每天 10 分钟。" : "A good rhythm is forming. Keep the daily ten minutes.";
-    if (data.week.correctedCount > 0) return language === "zh" ? "这周认真完成了订正，先把错题弄懂就是进步。" : "Corrections were completed this week. Understanding mistakes is real progress.";
+    if (data.week.reviewedCount > 0) return language === "zh" ? "这周已经开始复习，保持这个节奏就是进步。" : "Review practice has started this week. Keep the rhythm going.";
     return language === "zh" ? "从今天完成一组 5 题开始，重点是持续。" : "Start with one set of five today. Consistency matters most.";
 }
 
@@ -50,7 +50,7 @@ export function WeeklyReport() {
                 <div><strong className="block text-2xl">{data.week.completionDays.length}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "完成天数" : "Days completed"}</span></div>
                 <div><strong className="block text-2xl">{data.week.reviewedCount}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "复习题数" : "Reviews"}</span></div>
                 <div><strong className="block text-2xl">{data.week.accuracy}%</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "复习正确率" : "Accuracy"}</span></div>
-                <div><strong className="block text-2xl">{data.week.correctedCount}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "订正题数" : "Corrections"}</span></div>
+                <div><strong className="block text-2xl">{data.week.wrongCount}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "答错题数" : "Incorrect"}</span></div>
             </div>
 
             <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">

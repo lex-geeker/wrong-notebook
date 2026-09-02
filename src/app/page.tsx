@@ -45,7 +45,7 @@ function HomeContent() {
                 : null;
             const noTask = details && typeof details === "object" && "reason" in details && details.reason === "NO_DAILY_TASKS";
             setReviewError(noTask
-                ? (language === "zh" ? "今天的订正和复习都完成了。" : "Today's corrections and reviews are complete.")
+                ? (language === "zh" ? "今天没有到期的复习题。" : "No reviews are due today.")
                 : t.practice.batch.createError);
         } finally {
             setReviewLoading(false);
@@ -88,21 +88,21 @@ function HomeContent() {
                                 </div>
                                 <div>
                                     <h2 id="due-review-title" className="text-lg font-semibold">{language === "zh" ? "今日任务" : "Today's task"}</h2>
-                                    <p className="text-sm text-muted-foreground">{language === "zh" ? "每天 5 题，先订正再复习" : "Five questions: corrections first, then reviews"}</p>
+                                    <p className="text-sm text-muted-foreground">{language === "zh" ? "每天复习最多 5 题" : "Review up to five questions a day"}</p>
                                 </div>
                             </div>
                             <div className="grid grid-cols-3 divide-x text-center">
-                                <div><strong className="block text-2xl">{overview?.today.pendingCorrectionCount ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "待订正" : "To correct"}</span></div>
                                 <div><strong className="block text-2xl">{overview?.today.dueReviewCount ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "到期复习" : "Due reviews"}</span></div>
                                 <div><strong className="block text-2xl">{overview?.today.unfinishedCount ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "任务未完成" : "Unfinished"}</span></div>
+                                <div><strong className="block text-2xl">{overview?.week.completionDays.length ?? "-"}</strong><span className="text-xs text-muted-foreground">{language === "zh" ? "本周完成" : "Days this week"}</span></div>
                             </div>
                             <Button onClick={createDailyTask} disabled={reviewLoading || !overview} className="h-11 whitespace-nowrap px-5">
                                 {reviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : overview?.activeSession ? <Printer className="mr-2 h-4 w-4" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                                 {reviewLoading
                                     ? t.practice.batch.starting
                                     : overview?.activeSession
-                                        ? (language === "zh" ? "继续并打印今日任务" : "Continue and print")
-                                        : (language === "zh" ? "生成并打印今日 5 题" : "Create and print today's 5")}
+                                        ? (language === "zh" ? "继续并打印今日复习" : "Continue and print")
+                                        : (language === "zh" ? "生成并打印今日复习" : "Create and print today's review")}
                             </Button>
                         </div>
                         {reviewError && <p className="mt-3 text-sm text-destructive" role="alert">{reviewError}</p>}

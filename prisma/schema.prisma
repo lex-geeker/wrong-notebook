@@ -106,7 +106,6 @@ model ErrorItem {
   userNotes String?
 
   masteryLevel  Int     @default(0) // 0: New, 1: Reviewing, 2: Mastered
-  correctedAt   DateTime?
   gradeSemester String? // e.g. "Junior High Grade 2, 1st Semester"
   paperLevel    String? // e.g. "A", "B", "Other"
 
@@ -118,7 +117,6 @@ model ErrorItem {
 
   @@index([userId, subjectId, createdAt])
   @@index([userId, masteryLevel])
-  @@index([userId, correctedAt])
 }
 
 model PracticeRecord {
@@ -171,7 +169,6 @@ model PracticeSessionItem {
   questionText       String
   answerText         String
   generationMode     String          @default("original")
-  purpose            String          @default("review")
 
   record PracticeRecord?
 

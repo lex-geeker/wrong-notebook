@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, ImageIcon } from "lucide-react";
+import { ArrowLeft, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, House, ImageIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -426,7 +426,7 @@ export default function ErrorDetailPage() {
     return (
         <main className="min-h-screen bg-background">
             <div className="container mx-auto p-4 space-y-6 pb-20">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pr-12">
                     <div className="flex items-center gap-4">
                         <Link href={item.subjectId ? `/notebooks/${item.subjectId}` : "/notebooks"}>
                             <Button variant="ghost" size="icon">
@@ -465,6 +465,11 @@ export default function ErrorDetailPage() {
                             {t.detail.delete || "Delete"}
                         </Button>
                     </div>
+                    <Link href="/" className="absolute right-0 top-0">
+                        <Button variant="ghost" size="icon" title={t.practice.batch.home} aria-label={t.practice.batch.home}>
+                            <House className="h-5 w-5" />
+                        </Button>
+                    </Link>
                 </div>
 
                 <Card>

@@ -54,7 +54,6 @@ interface ImportData {
         knowledgePoints?: string | null;
         source: string | null;
         errorType: string | null;
-        correctedAt: string | null;
         userNotes: string | null;
         masteryLevel: number;
         gradeSemester: string | null;
@@ -142,7 +141,7 @@ export async function POST(req: Request) {
         const body = await req.json() as ImportData;
 
         // 验证数据格式
-        if (body.version < 3 || !body.user || !Array.isArray(body.errorItems)) {
+        if (body.version !== 4 || !body.user || !Array.isArray(body.errorItems)) {
             return badRequest("Invalid import data format");
         }
 
@@ -279,7 +278,6 @@ export async function POST(req: Request) {
                         mistakeStatus: item.mistakeStatus,
                         source: item.source,
                         errorType: item.errorType,
-                        correctedAt: safeParseDate(item.correctedAt),
                         userNotes: item.userNotes,
                         masteryLevel: safeMasteryLevel(item.masteryLevel),
                         gradeSemester: item.gradeSemester,

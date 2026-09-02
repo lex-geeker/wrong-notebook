@@ -63,7 +63,6 @@ export interface ErrorItem {
     mistakeStatus?: 'not_attempted' | 'wrong_attempt' | 'unknown' | string | null;
     source?: string | null;
     errorType?: string | null;
-    correctedAt?: string | null;
     userNotes?: string | null;
     tags?: Tag[];
 
@@ -190,7 +189,6 @@ export interface PracticeSessionItemData {
     errorItemId: string | null;
     questionText: string;
     generationMode: PracticeGenerationMode;
-    purpose: "correction" | "review";
     expectedAnswer?: string;
     answer?: {
         answerInput: string;
@@ -206,7 +204,6 @@ export interface PracticeSessionData extends PracticeSessionSummary {
 
 export interface LearningOverview {
     today: {
-        pendingCorrectionCount: number;
         dueReviewCount: number;
         unfinishedCount: number;
     };
@@ -216,7 +213,7 @@ export interface LearningOverview {
         reviewedCount: number;
         correctCount: number;
         accuracy: number;
-        correctedCount: number;
+        wrongCount: number;
         topErrorTypes: Array<{ name: string; count: number }>;
         weakTags: Array<{ name: string; count: number }>;
     };

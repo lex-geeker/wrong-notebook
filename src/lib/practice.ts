@@ -49,25 +49,21 @@ export function nextMasteryLevel(current: number, isCorrect: boolean) {
 }
 
 export function getNextReviewDate(
-    correctedAt: Date,
+    createdAt: Date,
     records: Array<{ createdAt: Date; isCorrect: boolean | null }>,
 ) {
     const latestFirst = [...records].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     let correctStreak = 0;
     while (latestFirst[correctStreak]?.isCorrect === true) correctStreak++;
-    return calculateNextReviewDate(correctStreak, latestFirst[0]?.createdAt || correctedAt);
+    return calculateNextReviewDate(correctStreak, latestFirst[0]?.createdAt || createdAt);
 }
 
 export function isReviewDue(
-    correctedAt: Date,
+    createdAt: Date,
     records: Array<{ createdAt: Date; isCorrect: boolean | null }>,
     now = new Date(),
 ) {
-    return getNextReviewDate(correctedAt, records).getTime() <= now.getTime();
-}
-
-export function getReviewRecords<T extends { sessionItem?: { purpose: string } | null }>(records: T[]) {
-    return records.filter((record) => record.sessionItem?.purpose !== "correction");
+    return getNextReviewDate(createdAt, records).getTime() <= now.getTime();
 }
 
 export function pickRandom<T>(items: T[], count: number): T[] {
@@ -88,7 +84,6 @@ export function serializePracticeSession(session: PracticeSessionWithItems, incl
             errorItemId: item.errorItemId,
             questionText: item.questionText,
             generationMode: item.generationMode,
-            purpose: item.purpose as "correction" | "review",
             ...(includeAnswers ? { expectedAnswer: item.answerText } : {}),
             ...(item.record ? {
                 answer: {
